@@ -12,9 +12,6 @@ import numpy as np
 from matplotlib import pyplot as plt
 import pandas as pd
 
-data_dir = 'data'
-
-
 def p(*args, inner=False):
     """Print in scientific notation."""
     out = ""
@@ -37,8 +34,8 @@ def read_data(path):
     data = {}
     data['input'] = d.loc[0]
     data['output'] = d.loc[1]
-    data['temp'] = d.loc[2]
-    data['time'] = d.loc[4]
+    data['time'] = d.loc[2]
+    data['temp'] = d.loc[3]
 
     return data
 
@@ -63,14 +60,31 @@ def plot_data(data, input_label=r'current [A]', output_label=r'voltage [V]'):
 
     return fig, axs
 
+def compute_length(electrode1, electrode2, contact_width=1e-5, contact5_width=1e-4, spacing=4e-5):
+    """Compute cable length between electrodes."""
+    spacing_num = electrode2 - electrode1
+    contact5_num = int((electrode2-1) / 5) - int((electrode1-1) / 5)
+    contact_num = spacing_num - 1 - contact5_num
+    print("spacing_num:", spacing_num)
+    print("contact_num:", contact_num)
+    print("contact5_num:", contact5_num)
+
+    length = (spacing_num * spacing) + \
+        (contact_num * contact_width) + \
+        (contact5_num * contact5_width)
+    return length
+
 
 def main():
     """Start analysis."""
+    contact_width=1e-5
+    contact5_width=1e-4
+    spacing=4e-5
+
     resistances = []
     lengths = []
-    unit_length = 5e-6
     pattern = os.path.join(data_dir, '4p*.xlsx')
-    for path in glob(pattern):
+    for path in np.sort(glob(pattern)):
         name = os.path.splitext(os.path.basename(path))[0]
         data = read_data(path)
 
@@ -83,7 +97,8 @@ def main():
         resistances.append(resistance)
 
         m = re.match(r'4p_.*_([0-9]*)-([0-9]*)', name, re.M)
-        length = (int(m.group(2)) - int(m.group(1))) * unit_length
+        length = compute_length(int(m.group(1)), int(m.group(2)), contact_width=contact_width,
+                                                    contact5_width=contact5_width, spacing=spacing)
         lengths.append(length)
 
         p("---", name, "---")
@@ -92,14 +107,20 @@ def main():
         p("offset:", offset, "V\n")
 
     fig, ax = plt.subplots()
-    ax.set_title('resistance over length')
+    ax.set_title("resistance over length")
     ax.plot(lengths, resistances, 'o')
-    ax.set_xlabel(r'length [m]')
-    ax.set_ylabel(r'resistance [\omega]')
-    plt.show()
+    ax.set_xlabel(r"length [m]")
+    ax.set_ylabel(r"resistance [$\Omega$]")
+    res_image = os.path.join(res_dir, "res_vs_length.png")
+    plt.savefig(res_image)
 
     return 0
 
 
 if __name__ == "__main__":
+    data_dir = 'data/SIC1x'
+    res_dir = 'results'
+
+    os.makedirs(res_dir, exist_ok=True)
+
     exit(main())
