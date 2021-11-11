@@ -13,6 +13,11 @@ import numpy as np
 from matplotlib import pyplot as plt
 import pandas as pd
 
+
+NUM_FIBERS = 60
+FIBER_RADIUS = 25e-9
+
+
 def p(*args, inner=False):
     """Print in scientific notation."""
     out = ""
@@ -31,10 +36,19 @@ def p(*args, inner=False):
         print(out)
 
 
+def linear_fit(x, y):
+    """Calculate 1D llinear fit."""
+    if isinstance(x, list):
+        x = np.array(x)
+    if isinstance(y, list):
+        y = np.array(y)
+    A = np.vstack([x, np.ones(x.shape)]).T
+    slope, offset = np.linalg.lstsq(A, y, rcond=None)[0]
+    return slope, offset
+
+
 class ChipParameters():
-    """
-    Define chip parameters.
-    """
+    """Define chip parameters."""
 
     CONTACT_WIDTH = 1e-5
     BIG_CONTACT_WIDTH = 1e-4
@@ -73,16 +87,19 @@ class ChipParameters():
             print(f"{key:30} {val}")
         print("\n")
 
-class DataHandler():
-    """
-    Functions to compute various quantities.
-    """
 
-    QUANTITIES = ["resistance", "length"]
+class DataHandler():
+    """Functions to compute various quantities."""
+
+    QUANTITIES = ["resistance", "length", "resistivity", "conductance"]
 
     def __init__(self, chip_parameters, path=None, **kwargs):
         """Declare quantities."""
         self.cp = chip_parameters
+
+        for q in self.QUANTITIES:
+            setattr(self, q, None)
+
         if path is not None:
             self.load(path, **kwargs)
 
@@ -108,8 +125,8 @@ class DataHandler():
 
     def inspect(self):
         """Plot input/output over time and output over input."""
-        current_label=r"current [A]"
-        voltage_label=r"voltage [V]"
+        current_label = r"current [A]"
+        voltage_label = r"voltage [V]"
         time_label = r"time [s]"
 
         fig, axs = plt.subplots(3, 1)
@@ -130,40 +147,51 @@ class DataHandler():
 
         plt.show()
 
-    def compute(self, quantity):
+    def get(self, quantity):
         """Call function to compute a certain quantity."""
         try:
-            quantity = getattr(self, "compute_" + quantity)()
+            q = getattr(self, quantity)
+            if q is None:
+                q = getattr(self, "_compute_" + quantity)()
         except AttributeError as e:
             print(f"Computing {quantity} is not implemented.")
             print("available quantities are:", self.QUANTITIES)
             raise AttributeError(e)
-        return quantity
+        return q
 
-    def compute_length(self):
+    def _compute_resistivity(self):
+        """Compute resistivity from resistance and length."""
+        length = self.get("length")
+        resistance = self.get("resistance")
+        surface = FIBER_RADIUS * NUM_FIBERS
+        self.resistivity = resistance * surface / length
+        return self.resistivity
+
+    def _compute_conductance(self):
+        """Compute conductance from resistivity."""
+        resistivity = self.get("resistivity")
+        self.conductance = 1 / resistivity
+        return self.conductance
+
+    def _compute_length(self):
         """Compute cable length between electrodes."""
         spacing_num = np.abs(self.pad_high - self.pad_low)
         big_contact_num = np.abs(int((self.pad_high-1) / 5) - int((self.pad_low-1) / 5))
         contact_num = spacing_num - 1 - big_contact_num
 
-        length = (spacing_num * self.cp.SPACING) + \
+        self.length = (spacing_num * self.cp.SPACING) + \
             (contact_num * self.cp.CONTACT_WIDTH) + \
             (big_contact_num * self.cp.BIG_CONTACT_WIDTH)
-        return length
+        return self.length
 
-    def compute_resistance(self):
+    def _compute_resistance(self):
         """Compute resistance from current voltage curve."""
-        A = np.vstack([self.current, np.ones(self.current.shape)]).T
-        resistance, offset = np.linalg.lstsq(A, self.voltage, rcond=None)[0]
-        return resistance
+        self.resistance, offset = linear_fit(self.current, self.voltage)
+        return self.resistance
 
 
 def get_from_4p(data_dir, couples, verbose=False):
     """Start analysis."""
-    contact_width = 1e-5
-    contact5_width = 1e-4
-    spacing = 4e-5
-
     to_compute = np.unique(np.array(couples).flatten())
     quantity_dict = {quantity: [] for quantity in to_compute}
 
@@ -181,18 +209,26 @@ def get_from_4p(data_dir, couples, verbose=False):
 
         p("---", name, "---")
         for q in quantity_dict:
-            value = dh.compute(q)
+            value = dh.get(q)
             quantity_dict[q].append(value)
             p(f"{q}:", value)
 
     for x, y in couples:
         fig, ax = plt.subplots()
-        ax.set_title("resistance over length")
+        ax.set_title(f"{y} over {x}")
         ax.plot(quantity_dict[x], quantity_dict[y], 'o')
         ax.set_xlabel(x)
         ax.set_ylabel(y)
-        res_image = os.path.join(res_dir, f"{x}_vs_{y}.png")
+        res_image = os.path.join(res_dir, f"{y}_vs_{x}.png")
         plt.savefig(res_image)
+
+    coeff, _ = linear_fit(quantity_dict["length"], quantity_dict["resistance"])
+    resistivity = coeff * NUM_FIBERS * FIBER_RADIUS
+    conductance = 1 / resistivity
+
+    p()
+    p("resistivity:", resistivity)
+    p("conductance:", conductance)
 
     return 0
 
@@ -212,6 +248,6 @@ if __name__ == "__main__":
     # define plots to produce
     couples = [
         ["length", "resistance"],
-        # ["length", "conductance"],
+        ["length", "conductance"],
     ]
     get_from_4p(data_dir, couples, verbose=verbose)
