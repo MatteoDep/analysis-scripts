@@ -1,0 +1,33 @@
+{
+    "name": "SKC7",
+    "sigma": 1e-8,
+    "layout": [
+        { "type": "contact", "width": 2e-6 },
+        { "type": "spacing", "width": 2e-6 },
+        { "type": "contact", "width": 1e-6 },
+        { "type": "spacing", "width": 2e-6 },
+        { "type": "contact", "width": 1e-6 },
+        { "type": "spacing", "width": 2e-6 },
+        { "type": "contact", "width": 2e-6 },
+
+        { "type": "spacing", "width": 1e-6 },
+        { "type": "contact", "width": 5e-7 },
+        { "type": "spacing", "width": 5e-7 },
+        { "type": "contact", "width": 5e-7 },
+        { "type": "spacing", "width": 5e-7 },
+        { "type": "contact", "width": 5e-7 },
+        { "type": "spacing", "width": 5e-7 },
+        { "type": "contact", "width": 5e-7 },
+        { "type": "spacing", "width": 5e-7 },
+        { "type": "contact", "width": 5e-7 },
+        { "type": "spacing", "width": 1e-6 },
+
+        { "type": "contact", "width": 2e-6 },
+        { "type": "spacing", "width": 2e-6 },
+        { "type": "contact", "width": 1e-6 },
+        { "type": "spacing", "width": 2e-6 },
+        { "type": "contact", "width": 1e-6 },
+        { "type": "spacing", "width": 2e-6 },
+        { "type": "contact", "width": 2e-6 }
+    ]
+}

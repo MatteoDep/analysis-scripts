@@ -1,0 +1,135 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+
+<svg
+   width="210mm"
+   height="297mm"
+   viewBox="0 0 210 297"
+   version="1.1"
+   id="svg5"
+   inkscape:version="1.1.1 (3bf5ae0d25, 2021-09-20, custom)"
+   sodipodi:docname="chip.svg"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <sodipodi:namedview
+     id="namedview7"
+     pagecolor="#ffffff"
+     bordercolor="#666666"
+     borderopacity="1.0"
+     inkscape:pageshadow="2"
+     inkscape:pageopacity="0.0"
+     inkscape:pagecheckerboard="0"
+     inkscape:document-units="mm"
+     showgrid="false"
+     inkscape:zoom="0.72344709"
+     inkscape:cx="298.57056"
+     inkscape:cy="277.83649"
+     inkscape:window-width="1366"
+     inkscape:window-height="748"
+     inkscape:window-x="0"
+     inkscape:window-y="20"
+     inkscape:window-maximized="1"
+     inkscape:current-layer="layer1" />
+  <defs
+     id="defs2">
+    <linearGradient
+       id="linearGradient924"
+       inkscape:swatch="solid">
+      <stop
+         style="stop-color:#000000;stop-opacity:1;"
+         offset="0"
+         id="stop922" />
+    </linearGradient>
+  </defs>
+  <g
+     inkscape:label="Layer 1"
+     inkscape:groupmode="layer"
+     id="layer1">
+    <rect
+       style="fill:#0000ff;fill-rule:evenodd;stroke-width:0.264583"
+       id="rect31"
+       height="18.272141"
+       x="24.518742"
+       y="21.201773" />
+    <rect
+       style="fill:none;fill-rule:evenodd;stroke:#000000;stroke-opacity:1"
+       id="rect920"
+       width="10"
+       x="0.5"
+       y="10.500002"
+       height="10" />
+    <rect
+       style="fill:none;fill-rule:evenodd;stroke:#000000;stroke-opacity:1"
+       id="rect920-3"
+       width="10"
+       x="130.5"
+       y="140.50002"
+       height="10" />
+    <rect
+       style="fill:none;fill-rule:evenodd;stroke:#000000;stroke-opacity:1"
+       id="rect920-6"
+       width="10"
+       x="130.5"
+       y="10.5"
+       height="10" />
+    <rect
+       style="fill:none;fill-rule:evenodd;stroke:#000000;stroke-opacity:1"
+       id="rect920-7"
+       width="10"
+       x="0.5"
+       y="140.50002"
+       height="10" />
+    <rect
+       style="fill:none;fill-rule:evenodd;stroke:#000000;stroke-width:0.761905;stroke-opacity:1"
+       id="rect920-5"
+       width="7.6190472"
+       x="40.380951"
+       y="-13.000002"
+       height="7.6190472"
+       transform="scale(1,-1)" />
+    <rect
+       style="fill:none;fill-rule:evenodd;stroke:#000000;stroke-width:0.761905;stroke-opacity:1"
+       id="rect920-5-0"
+       width="7.6190472"
+       x="10.5"
+       y="12.880955"
+       height="7.6190472" />
+    <rect
+       style="fill:none;fill-rule:evenodd;stroke:#000000;stroke-width:0.761905;stroke-opacity:1"
+       id="rect920-62"
+       width="7.6190472"
+       x="49.587502"
+       y="0.38095424"
+       height="7.6190472" />
+    <rect
+       style="fill:none;fill-rule:evenodd;stroke:#000000;stroke-width:0.761905;stroke-opacity:1"
+       id="rect920-5-9"
+       width="7.6190472"
+       x="81.968452"
+       y="-7.9999995"
+       height="7.6190472"
+       transform="scale(1,-1)" />
+    <rect
+       style="fill:none;fill-rule:evenodd;stroke:#000000;stroke-width:0.761905;stroke-opacity:1"
+       id="rect920-62-3"
+       width="7.6190472"
+       x="91.175003"
+       y="-13"
+       height="7.6190472"
+       transform="scale(1,-1)" />
+    <path
+       style="fill:none;stroke:#000000;stroke-width:0.264583px;stroke-linecap:butt;stroke-linejoin:miter;stroke-opacity:1"
+       d="m 49.587501,8.0000008 0.01857,3.5452822"
+       id="path1649" />
+    <path
+       style="fill:none;stroke:#000000;stroke-width:0.264583px;stroke-linecap:butt;stroke-linejoin:miter;stroke-opacity:1"
+       d="m 89.587502,7.9999995 0.01857,3.5452825"
+       id="path1649-6" />
+    <path
+       style="fill:none;stroke:#000000;stroke-width:0.264583px;stroke-linecap:butt;stroke-linejoin:miter;stroke-opacity:1"
+       d="M 47.457436,11.178667 91.60626,11.20732"
+       id="path1786" />
+  </g>
+</svg>

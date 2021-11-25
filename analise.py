@@ -8,14 +8,17 @@ analyse data to plot conductivity over length.
 import os
 import re
 from glob import glob
-import toml
+import json
 import numpy as np
+from scipy.optimize import curve_fit
+import uncertainties as u
+from uncertainties import unumpy as unp
 from matplotlib import pyplot as plt
 import pandas as pd
 
 
 NUM_FIBERS = 60
-FIBER_RADIUS = 25e-9
+FIBER_RADIUS = u.ufloat(25e-9, 1e-12)
 
 
 def p(*args, inner=False):
@@ -28,8 +31,12 @@ def p(*args, inner=False):
             out += " " + arg
         elif isinstance(arg, list):
             out += " " + p(*arg, inner=True)
+        elif isinstance(arg, np.ndarray):
+            out += " {}".format(arg)
+        elif isinstance(arg, u.UFloat):
+            out += " {:.2u}".format(arg)
         else:
-            out += " {:.3e}".format(arg)
+            out += " {:.3f}".format(arg)
     if inner:
         return out
     else:
@@ -38,35 +45,61 @@ def p(*args, inner=False):
 
 def linear_fit(x, y):
     """Calculate 1D llinear fit."""
-    if isinstance(x, list):
-        x = np.array(x)
-    if isinstance(y, list):
-        y = np.array(y)
-    A = np.vstack([x, np.ones(x.shape)]).T
-    slope, offset = np.linalg.lstsq(A, y, rcond=None)[0]
-    return slope, offset
+    for d in (x, y):
+        if isinstance(d, list):
+            if len(d) < 1:
+                return None, None
+            if not isinstance(d[0], u.UFloat):
+                d = unp.uarray(d, 1e-9*np.ones(len(d)))
+
+    def line(x, a, b):
+        """Linear model."""
+        return a*x + b
+
+    sigma_x = unp.std_devs(x)
+    sigma_y = unp.std_devs(y)
+    if sigma_x.any() or sigma_y.any():
+        sigma = np.sqrt(sigma_x**2 + sigma_y**2)
+    else:
+        sigma = None
+
+    popt, pcov = curve_fit(line, unp.nominal_values(x), unp.nominal_values(y), sigma=sigma)
+    perr = np.sqrt(np.diag(pcov))
+    a = u.ufloat(popt[0], perr[0])
+    b = u.ufloat(popt[1], perr[1])
+    return a, b
 
 
 class ChipParameters():
     """Define chip parameters."""
 
-    CONTACT_WIDTH = 1e-5
-    BIG_CONTACT_WIDTH = 1e-4
-    SPACING = 4e-5
+    def __init__(self, config=None):
+        """
+        Create object and load configuration.
 
-    def __init__(self, config_dict=None):
-        if config_dict is not None:
-            self.load(config_dict)
+        :param config: configuration toml file or dictionary.
+        """
+        # default values
+        self.sigma = 0
+        self.name = None
+        self.layout = None
+
+        if config is not None:
+            self.load(config)
 
     def set(self, parameter, value):
         """Set parameter to value."""
         setattr(self, parameter, value)
 
-    def load(self, config_dict):
-        """Set attributes from configuration dictionary."""
-        if isinstance(config_dict, str):
-            config_dict = toml.load(open(config_dict))
-        for attr_name, attr_value in config_dict.items():
+    def load(self, config):
+        """
+        Set attributes from configuration dictionary.
+
+        :param config: configuration toml file or dictionary.
+        """
+        if isinstance(config, str):
+            config = json.load(open(config))
+        for attr_name, attr_value in config.items():
             self.set(attr_name, attr_value)
 
     def dump(self, path=None):
@@ -77,7 +110,7 @@ class ChipParameters():
         }
         if path is not None:
             with open(path, 'w') as f:
-                toml.dump(config_dict, f)
+                json.dump(config_dict, f)
         return config_dict
 
     def display(self):
@@ -87,11 +120,33 @@ class ChipParameters():
             print(f"{key:30} {val}")
         print("\n")
 
+    def get_distance(self, pad_high, pad_low):
+        """Get distance between the contacts point correspondent to the pads."""
+        if pad_high > pad_low:
+            pad_high, pad_low = pad_low, pad_high
+
+        count = 0
+        distance = 0
+        measure = False
+        for item in self.layout:
+            if item['type'] == "contact":
+                count += 1
+            # do not change the order of the if statements below
+            if count == pad_low:
+                break
+            if measure:
+                distance += item['width']
+            if count == pad_high:
+                measure = True
+
+        return u.ufloat(distance, self.sigma)
+
 
 class DataHandler():
     """Functions to compute various quantities."""
 
     QUANTITIES = ["resistance", "length", "resistivity", "conductance"]
+    SIGMA = 0
 
     def __init__(self, chip_parameters, path=None, **kwargs):
         """Declare quantities."""
@@ -111,17 +166,16 @@ class DataHandler():
         self.pad_low = int(pad_low)
 
         d = pd.read_excel(path)
-        self.data = {}
         if mode in ("4p", "2p"):
-            self.current = d.loc[0]
-            self.voltage = d.loc[1]
+            self.current = unp.uarray(d.loc[0], self.SIGMA)
+            self.voltage = unp.uarray(d.loc[1], self.SIGMA)
         elif mode == "vi":
-            self.voltage = d.loc[0]
-            self.current = d.loc[1]
+            self.voltage = unp.uarray(d.loc[0], self.SIGMA)
+            self.current = unp.uarray(d.loc[1], self.SIGMA)
         else:
             raise ValueError(f"Unknown mode '{mode}'.")
-        self.time = d.loc[2]
-        self.temperature = d.loc[3]
+        self.time = unp.uarray(d.loc[2], self.SIGMA)
+        self.temperature = unp.uarray(d.loc[3], self.SIGMA)
 
     def inspect(self):
         """Plot input/output over time and output over input."""
@@ -133,15 +187,19 @@ class DataHandler():
         plt.tight_layout()
         fig.suptitle(self.name)
 
-        axs[0].plot(self.time, self.current, 'o-')
+        time = unp.nominal_values(self.time)
+        voltage = unp.nominal_values(self.voltage)
+        current = unp.nominal_values(self.current)
+
+        axs[0].plot(time, current, 'o-')
         axs[0].set_xlabel(time_label)
         axs[0].set_ylabel(current_label)
 
-        axs[1].plot(self.time, self.voltage, 'o-')
+        axs[1].plot(time, voltage, 'o-')
         axs[1].set_xlabel(time_label)
         axs[1].set_ylabel(voltage_label)
 
-        axs[2].plot(self.current, self.voltage, 'o-')
+        axs[2].plot(current, voltage, 'o-')
         axs[2].set_xlabel(current_label)
         axs[2].set_ylabel(voltage_label)
 
@@ -153,10 +211,9 @@ class DataHandler():
             q = getattr(self, quantity)
             if q is None:
                 q = getattr(self, "_compute_" + quantity)()
-        except AttributeError as e:
-            print(f"Computing {quantity} is not implemented.")
-            print("available quantities are:", self.QUANTITIES)
-            raise AttributeError(e)
+        except AttributeError:
+            err = f"Computing {quantity} is not implemented.\navailable quantities are: {self.QUANTITIES}"
+            raise ValueError(err)
         return q
 
     def _compute_resistivity(self):
@@ -175,25 +232,20 @@ class DataHandler():
 
     def _compute_length(self):
         """Compute cable length between electrodes."""
-        spacing_num = np.abs(self.pad_high - self.pad_low)
-        big_contact_num = np.abs(int((self.pad_high-1) / 5) - int((self.pad_low-1) / 5))
-        contact_num = spacing_num - 1 - big_contact_num
-
-        self.length = (spacing_num * self.cp.SPACING) + \
-            (contact_num * self.cp.CONTACT_WIDTH) + \
-            (big_contact_num * self.cp.BIG_CONTACT_WIDTH)
+        self.length = self.cp.get_distance(self.pad_high, self.pad_low)
         return self.length
 
     def _compute_resistance(self):
         """Compute resistance from current voltage curve."""
-        self.resistance, offset = linear_fit(self.current, self.voltage)
+        coeffs = linear_fit(self.current, self.voltage)
+        self.resistance = coeffs[0]
         return self.resistance
 
 
-def get_from_4p(data_dir, couples, verbose=False):
+def main(data_dir, couples, verbosity=1):
     """Start analysis."""
     to_compute = np.unique(np.array(couples).flatten())
-    quantity_dict = {quantity: [] for quantity in to_compute}
+    quantity_dict = {q: [] for q in to_compute}
 
     pattern = os.path.join(data_dir, '4p*.xlsx')
     for path in np.sort(glob(pattern)):
@@ -204,45 +256,60 @@ def get_from_4p(data_dir, couples, verbose=False):
         # initialize data handler
         dh = DataHandler(cp, path, mode="4p", pad_high=m.group(1), pad_low=m.group(2))
 
-        if verbose:
-            dh.inspect()
-
         p("---", name, "---")
         for q in quantity_dict:
             value = dh.get(q)
             quantity_dict[q].append(value)
-            p(f"{q}:", value)
+            if verbosity > 0:
+                p(f"{q}:", value)
 
-    for x, y in couples:
+        if verbosity > 1:
+            dh.inspect()
+
+    # create arrays from lists
+    for q in quantity_dict:
+        quantity_dict[q] = np.array(quantity_dict[q])
+
+    for qx, qy in couples:
         fig, ax = plt.subplots()
-        ax.set_title(f"{y} over {x}")
-        ax.plot(quantity_dict[x], quantity_dict[y], 'o')
-        ax.set_xlabel(x)
-        ax.set_ylabel(y)
-        res_image = os.path.join(res_dir, f"{y}_vs_{x}.png")
+        ax.set_title(f"{qy} over {qx}")
+        x = unp.nominal_values(quantity_dict[qx])
+        y = unp.nominal_values(quantity_dict[qy])
+        dx = unp.std_devs(quantity_dict[qx])
+        dy = unp.std_devs(quantity_dict[qy])
+        ax.errorbar(x, y, xerr=dx, yerr=dy, fmt='o')
+        ax.set_xlabel(qx)
+        ax.set_ylabel(qy)
+        res_image = os.path.join(res_dir, f"{qy}_vs_{qx}.png")
         plt.savefig(res_image)
+        if verbosity > 0:
+            plt.show()
 
-    coeff, _ = linear_fit(quantity_dict["length"], quantity_dict["resistance"])
-    resistivity = coeff * NUM_FIBERS * FIBER_RADIUS
+    coeffs = linear_fit(quantity_dict["length"], quantity_dict["resistance"])
+    resistivity = coeffs[0] * NUM_FIBERS * FIBER_RADIUS
+    offset = coeffs[1]
     conductance = 1 / resistivity
 
-    p()
-    p("resistivity:", resistivity)
-    p("conductance:", conductance)
+    if verbosity > 0:
+        p()
+        p("offset:", offset)
+        p("resistivity:", resistivity)
+        p("conductance:", conductance)
 
     return 0
 
 
 if __name__ == "__main__":
+    # chip = "SKC7"
     chip = "SIC1x"
     experiment = "4p_room-temp"
     chip_dir = os.path.join("data", chip)
     data_dir = os.path.join(chip_dir, experiment)
     res_dir = os.path.join("results", chip, experiment)
-    verbose = False
+    verbosity = 1
 
     # load chip parameters
-    cp = ChipParameters(os.path.join(chip_dir, chip + ".toml"))
+    cp = ChipParameters(os.path.join(chip_dir, chip + ".json"))
     # create results dir if it doesn't exist
     os.makedirs(res_dir, exist_ok=True)
     # define plots to produce
@@ -250,4 +317,4 @@ if __name__ == "__main__":
         ["length", "resistance"],
         ["length", "conductance"],
     ]
-    get_from_4p(data_dir, couples, verbose=verbose)
+    main(data_dir, couples, verbosity=verbosity)
