@@ -50,7 +50,7 @@ def linear_fit(x, y):
             if len(d) < 1:
                 return None, None
             if not isinstance(d[0], u.UFloat):
-                d = unp.uarray(d, 1e-9*np.ones(len(d)))
+                d = unp.uarray(d, np.zeros(len(d)))
             else:
                 d = np.array(d)
 
@@ -327,6 +327,7 @@ if __name__ == "__main__":
         ["length", "conductivity"],
     ]
     modes = ['2p', '4p']
+    # modes = ['4p']
     to_compute = np.unique(np.array(couples).flatten())
 
     qd, segments = compute_quantities(data_dir, to_compute, modes=modes, verbosity=verbosity)
@@ -339,14 +340,10 @@ if __name__ == "__main__":
         p("\nresistivity:", resistivity)
         p("conductivity:", conductivity)
 
-    for i, segment in enumerate(segments['2p']):
-        contact_resistance = qd['2p']['resistance'][i] - qd['4p']['resistance'][i]
-        p("segment", segment, "resistance:", contact_resistance)
-
     factor = {
         'length': 1e6,
         'resistance': 1e-6,
-        'conductivity': 1e2,
+        'conductivity': 1e-2,
     }
     label = {
         'length': r'length [$\mu m$]',
@@ -356,6 +353,8 @@ if __name__ == "__main__":
 
     for qx, qy in couples:
         fig, axs = plt.subplots(len(modes), 1)
+        if len(modes) == 1:
+            axs = [axs]
         for i, mode in enumerate(modes):
             axs[i].set_title(f"{qy} vs {qx} ({mode})")
             x = unp.nominal_values(qd[mode][qx])
@@ -381,5 +380,29 @@ if __name__ == "__main__":
             axs[i].set_ylabel(label[qy])
             axs[i].legend()
         res_image = os.path.join(res_dir, f"{qy}_vs_{qx}.png")
+        plt.tight_layout()
+        plt.savefig(res_image)
+
+    if '2p' in modes and '4p' in modes:
+        contact_resistance = []
+        for i, segment in enumerate(segments['2p']):
+            contact_resistance.append(qd['2p']['resistance'][i] - qd['4p']['resistance'][i])
+        contact_resistance = np.array(contact_resistance)
+
+        fig, ax = plt.subplots()
+        ax.set_title("2p-4p resistance vs length")
+        x = unp.nominal_values(qd['2p']['length'])
+        y = unp.nominal_values(contact_resistance)
+        dx = unp.std_devs(qd['2p']['length'])
+        dy = unp.std_devs(contact_resistance)
+        ax.errorbar(
+            x * factor['length'],
+            y * factor['resistance'],
+            xerr=dx * factor['length'],
+            yerr=dy * factor['resistance'],
+            fmt='o')
+        ax.set_xlabel(label['length'])
+        ax.set_ylabel(label['resistance'])
+        res_image = os.path.join(res_dir, f"{'4p-2p-resistance'}_vs_{'length'}.png")
         plt.tight_layout()
         plt.savefig(res_image)
