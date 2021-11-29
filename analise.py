@@ -10,7 +10,7 @@ import re
 from glob import glob
 import json
 import numpy as np
-from scipy.optimize import curve_fit
+from scipy.odr import Model, RealData, ODR
 import uncertainties as u
 from uncertainties import unumpy as unp
 from matplotlib import pyplot as plt
@@ -18,7 +18,7 @@ import pandas as pd
 
 
 NUM_FIBERS = 60
-FIBER_RADIUS = u.ufloat(25e-9, 1e-12)
+FIBER_RADIUS = u.ufloat(25e-9, 1e-10)
 
 
 def p(*args, inner=False):
@@ -51,23 +51,37 @@ def linear_fit(x, y):
                 return None, None
             if not isinstance(d[0], u.UFloat):
                 d = unp.uarray(d, 1e-9*np.ones(len(d)))
+            else:
+                d = np.array(d)
 
-    def line(x, a, b):
+    def linear(b, x):
         """Linear model."""
-        return a*x + b
+        return b[0]*x + b[1]
 
+    def estimate(data):
+        """Parameters estimation."""
+        beta0 = [0, data.y[0]/data.x[0]]
+        return np.array(beta0)
+
+    # separate data and uncertainties
+    x_ = unp.nominal_values(x)
+    y_ = unp.nominal_values(y)
     sigma_x = unp.std_devs(x)
     sigma_y = unp.std_devs(y)
-    if sigma_x.any() or sigma_y.any():
-        sigma = np.sqrt(sigma_x**2 + sigma_y**2)
-    else:
-        sigma = None
+    if not sigma_x.all():
+        sigma_x = None
+    if not sigma_y.all():
+        sigma_y = None
 
-    popt, pcov = curve_fit(line, unp.nominal_values(x), unp.nominal_values(y), sigma=sigma)
-    perr = np.sqrt(np.diag(pcov))
-    a = u.ufloat(popt[0], perr[0])
-    b = u.ufloat(popt[1], perr[1])
-    return a, b
+    model = Model(linear, estimate=estimate)
+    data = RealData(x_, y_, sx=sigma_x, sy=sigma_y)
+    odr = ODR(data, model)
+    res = odr.run()
+    res.pprint()
+
+    coeffs = [u.ufloat(res.beta[i], res.sd_beta[i]) for i in range(len(res.beta))]
+
+    return coeffs
 
 
 class ChipParameters():
@@ -120,10 +134,10 @@ class ChipParameters():
             print(f"{key:30} {val}")
         print("\n")
 
-    def get_distance(self, pad_high, pad_low):
+    def get_distance(self, segment):
         """Get distance between the contacts point correspondent to the pads."""
-        if pad_high > pad_low:
-            pad_high, pad_low = pad_low, pad_high
+        pad_high = min(segment)
+        pad_low = max(segment)
 
         count = 0
         distance = 0
@@ -145,7 +159,7 @@ class ChipParameters():
 class DataHandler():
     """Functions to compute various quantities."""
 
-    QUANTITIES = ["resistance", "length", "resistivity", "conductance"]
+    QUANTITIES = ["resistance", "length", "resistivity", "conductivity"]
     SIGMA = 0
 
     def __init__(self, chip_parameters, path=None, **kwargs):
@@ -158,12 +172,11 @@ class DataHandler():
         if path is not None:
             self.load(path, **kwargs)
 
-    def load(self, path, mode, pad_high, pad_low):
+    def load(self, path, mode, segment):
         """Read data from files."""
         self.name = os.path.splitext(os.path.basename(path))[0]
         self.mode = mode
-        self.pad_high = int(pad_high)
-        self.pad_low = int(pad_low)
+        self.segment = segment
 
         d = pd.read_excel(path)
         if mode in ("4p", "2p"):
@@ -191,17 +204,23 @@ class DataHandler():
         voltage = unp.nominal_values(self.voltage)
         current = unp.nominal_values(self.current)
 
-        axs[0].plot(time, current, 'o-')
+        axs[0].plot(time, current, 'o')
         axs[0].set_xlabel(time_label)
         axs[0].set_ylabel(current_label)
 
-        axs[1].plot(time, voltage, 'o-')
+        axs[1].plot(time, voltage, 'o')
         axs[1].set_xlabel(time_label)
         axs[1].set_ylabel(voltage_label)
 
-        axs[2].plot(current, voltage, 'o-')
+        axs[2].plot(current, voltage, 'o')
         axs[2].set_xlabel(current_label)
         axs[2].set_ylabel(voltage_label)
+
+        if self.resistance is not None:
+            resistance = self.resistance.nominal_value
+            offset = self.offset.nominal_value
+            y = resistance * current + offset
+            axs[2].plot(current, y, '-')
 
         plt.show()
 
@@ -220,93 +239,83 @@ class DataHandler():
         """Compute resistivity from resistance and length."""
         length = self.get("length")
         resistance = self.get("resistance")
-        surface = FIBER_RADIUS * NUM_FIBERS
+        surface = NUM_FIBERS * np.pi * FIBER_RADIUS**2
         self.resistivity = resistance * surface / length
         return self.resistivity
 
-    def _compute_conductance(self):
-        """Compute conductance from resistivity."""
+    def _compute_conductivity(self):
+        """Compute conductivity from resistivity."""
         resistivity = self.get("resistivity")
-        self.conductance = 1 / resistivity
-        return self.conductance
+        self.conductivity = 1 / resistivity
+        return self.conductivity
 
     def _compute_length(self):
         """Compute cable length between electrodes."""
-        self.length = self.cp.get_distance(self.pad_high, self.pad_low)
+        self.length = self.cp.get_distance(self.segment)
         return self.length
 
     def _compute_resistance(self):
         """Compute resistance from current voltage curve."""
         coeffs = linear_fit(self.current, self.voltage)
         self.resistance = coeffs[0]
+        self.offset = coeffs[1]
         return self.resistance
 
 
-def main(data_dir, couples, verbosity=1):
+def compute_quantities(data_dir, quantities, modes=['2p', '4p'], verbosity=1):
     """Start analysis."""
-    to_compute = np.unique(np.array(couples).flatten())
-    quantity_dict = {q: [] for q in to_compute}
+    qd = {mode: {} for mode in modes}
+    for mode in modes:
+        qd[mode] = {q: [] for q in quantities}
+    segments = {mode: [] for mode in modes}
+    regex = {
+        '2p': r'2p_([0-9]*)-([0-9]*)',
+        '4p': r'4p_.*_([0-9]*)-([0-9]*)',
+    }
 
-    pattern = os.path.join(data_dir, '4p*.xlsx')
-    for path in np.sort(glob(pattern)):
-        # get pad numbers from path
-        name = os.path.splitext(os.path.basename(path))[0]
-        m = re.match(r'4p_.*_([0-9]*)-([0-9]*)', name, re.M)
+    for mode in modes:
+        p(f"### {mode} ###\n")
+        pattern = os.path.join(data_dir, mode + '*.xlsx')
+        for path in np.sort(glob(pattern)):
+            # get pad numbers from path
+            name = os.path.splitext(os.path.basename(path))[0]
+            if mode in modes:
+                m = re.match(regex[mode], name, re.M)
+            segment = (int(m.group(1)), int(m.group(2)))
+            segments[mode].append(segment)
 
-        # initialize data handler
-        dh = DataHandler(cp, path, mode="4p", pad_high=m.group(1), pad_low=m.group(2))
+            # initialize data handler
+            dh = DataHandler(cp, path, mode=mode, segment=segment)
 
-        p("---", name, "---")
-        for q in quantity_dict:
-            value = dh.get(q)
-            quantity_dict[q].append(value)
-            if verbosity > 0:
-                p(f"{q}:", value)
+            p("---", name, "---")
+            for q in qd[mode]:
+                value = dh.get(q)
+                qd[mode][q].append(value)
+                if verbosity > 0:
+                    p(f"{q}:", value)
 
-        if verbosity > 1:
-            dh.inspect()
+            if verbosity > 1:
+                dh.inspect()
 
-    # create arrays from lists
-    for q in quantity_dict:
-        quantity_dict[q] = np.array(quantity_dict[q])
+        # create arrays from lists
+        segments[mode] = np.array(segments[mode])
+        indeces = np.argsort(segments[mode][:, 1])
+        segments[mode].sort(axis=0)
+        for q in qd[mode]:
+            qd[mode][q] = np.array(qd[mode][q])[indeces]
 
-    for qx, qy in couples:
-        fig, ax = plt.subplots()
-        ax.set_title(f"{qy} over {qx}")
-        x = unp.nominal_values(quantity_dict[qx])
-        y = unp.nominal_values(quantity_dict[qy])
-        dx = unp.std_devs(quantity_dict[qx])
-        dy = unp.std_devs(quantity_dict[qy])
-        ax.errorbar(x, y, xerr=dx, yerr=dy, fmt='o')
-        ax.set_xlabel(qx)
-        ax.set_ylabel(qy)
-        res_image = os.path.join(res_dir, f"{qy}_vs_{qx}.png")
-        plt.savefig(res_image)
-        if verbosity > 0:
-            plt.show()
-
-    coeffs = linear_fit(quantity_dict["length"], quantity_dict["resistance"])
-    resistivity = coeffs[0] * NUM_FIBERS * FIBER_RADIUS
-    offset = coeffs[1]
-    conductance = 1 / resistivity
-
-    if verbosity > 0:
-        p()
-        p("offset:", offset)
-        p("resistivity:", resistivity)
-        p("conductance:", conductance)
-
-    return 0
+    return qd, segments
 
 
 if __name__ == "__main__":
-    # chip = "SKC7"
-    chip = "SIC1x"
+    # chip = "SLC7"
+    chip = "SKC7"
+    # chip = "SIC1x"
     experiment = "4p_room-temp"
     chip_dir = os.path.join("data", chip)
     data_dir = os.path.join(chip_dir, experiment)
     res_dir = os.path.join("results", chip, experiment)
-    verbosity = 1
+    verbosity = 1   # 0, 1 or 2
 
     # load chip parameters
     cp = ChipParameters(os.path.join(chip_dir, chip + ".json"))
@@ -315,6 +324,62 @@ if __name__ == "__main__":
     # define plots to produce
     couples = [
         ["length", "resistance"],
-        ["length", "conductance"],
+        ["length", "conductivity"],
     ]
-    main(data_dir, couples, verbosity=verbosity)
+    modes = ['2p', '4p']
+    to_compute = np.unique(np.array(couples).flatten())
+
+    qd, segments = compute_quantities(data_dir, to_compute, modes=modes, verbosity=verbosity)
+
+    coeffs = linear_fit(qd['4p']["length"], qd['4p']["resistance"])
+    resistivity = coeffs[0] * NUM_FIBERS * np.pi * FIBER_RADIUS**2
+    conductivity = 1 / resistivity
+
+    if verbosity > 0:
+        p("\nresistivity:", resistivity)
+        p("conductivity:", conductivity)
+
+    for i, segment in enumerate(segments['2p']):
+        contact_resistance = qd['2p']['resistance'][i] - qd['4p']['resistance'][i]
+        p("segment", segment, "resistance:", contact_resistance)
+
+    factor = {
+        'length': 1e6,
+        'resistance': 1e-6,
+        'conductivity': 1e2,
+    }
+    label = {
+        'length': r'length [$\mu m$]',
+        'resistance': r'resistance [$M\Omega$]',
+        'conductivity': r'conductivity [$S/cm$]',
+    }
+
+    for qx, qy in couples:
+        fig, axs = plt.subplots(len(modes), 1)
+        for i, mode in enumerate(modes):
+            axs[i].set_title(f"{qy} vs {qx} ({mode})")
+            x = unp.nominal_values(qd[mode][qx])
+            y = unp.nominal_values(qd[mode][qy])
+            dx = unp.std_devs(qd[mode][qx])
+            dy = unp.std_devs(qd[mode][qy])
+
+            axs[i].errorbar(
+                x * factor[qx],
+                y * factor[qy],
+                xerr=dx * factor[qx],
+                yerr=dy * factor[qy],
+                fmt='o',
+                label=f'{mode} data')
+            if qx == 'length' and qy == 'resistance' and mode == '4p':
+                y1 = coeffs[0].nominal_value * x + coeffs[1].nominal_value
+                axs[i].plot(x*factor[qx], y1*factor[qy], '-', label=f'{mode} fit')
+            if qx == 'length' and qy == 'conductivity' and mode == '4p':
+                y1 = conductivity.nominal_value*np.ones(x.shape)
+                axs[i].plot(x*factor[qx], y1*factor[qy], '-', label=f'{mode} fit')
+
+            axs[i].set_xlabel(label[qx])
+            axs[i].set_ylabel(label[qy])
+            axs[i].legend()
+        res_image = os.path.join(res_dir, f"{qy}_vs_{qx}.png")
+        plt.tight_layout()
+        plt.savefig(res_image)

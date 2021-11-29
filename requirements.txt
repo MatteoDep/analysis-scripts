@@ -1,7 +1,5 @@
 numpy
 matplotlib
 pandas
-toml
 scipy
-uncertainties
 uncertainties
