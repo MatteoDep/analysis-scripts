@@ -77,8 +77,6 @@ def linear_fit(x, y):
     data = RealData(x_, y_, sx=sigma_x, sy=sigma_y)
     odr = ODR(data, model)
     res = odr.run()
-    res.pprint()
-
     coeffs = [u.ufloat(res.beta[i], res.sd_beta[i]) for i in range(len(res.beta))]
 
     return coeffs
@@ -161,6 +159,7 @@ class DataHandler():
 
     QUANTITIES = ["resistance", "length", "resistivity", "conductivity"]
     SIGMA = 0
+    MODES = ['2p', '4p']
 
     def __init__(self, chip_parameters, path=None, **kwargs):
         """Declare quantities."""
@@ -172,21 +171,31 @@ class DataHandler():
         if path is not None:
             self.load(path, **kwargs)
 
-    def load(self, path, mode, segment):
+    def load(self, path):
         """Read data from files."""
         self.name = os.path.splitext(os.path.basename(path))[0]
-        self.mode = mode
-        self.segment = segment
 
+        # get properties from name
+        regex = r'([vi]{2})([24]p).*_([0-9]+)-([0-9]+)$'
+        m = re.match(regex, self.name, re.M)
+        if m is None:
+            raise ValueError(f"File {path} does not match regex {regex}. Please stick to the naming convention.")
+        order = m.group(1)
+        self.mode = m.group(2)
+        if self.mode not in self.MODES:
+            raise ValueError(f"Unknown mode '{mode}'.")
+        self.segment = (int(m.group(3)), int(m.group(4)))
+
+        # load data
         d = pd.read_excel(path)
-        if mode in ("4p", "2p"):
+        if order == "iv":
             self.current = unp.uarray(d.loc[0], self.SIGMA)
             self.voltage = unp.uarray(d.loc[1], self.SIGMA)
-        elif mode == "vi":
+        elif order == "vi":
             self.voltage = unp.uarray(d.loc[0], self.SIGMA)
             self.current = unp.uarray(d.loc[1], self.SIGMA)
         else:
-            raise ValueError(f"Unknown mode '{mode}'.")
+            raise ValueError(f"Unknown order '{order}'.")
         self.time = unp.uarray(d.loc[2], self.SIGMA)
         self.temperature = unp.uarray(d.loc[3], self.SIGMA)
 
@@ -262,46 +271,50 @@ class DataHandler():
         return self.resistance
 
 
-def compute_quantities(data_dir, quantities, modes=['2p', '4p'], verbosity=1):
+def compute_quantities(data_dir, quantities, verbosity=1):
     """Start analysis."""
+    modes = DataHandler.MODES
     qd = {mode: {} for mode in modes}
     for mode in modes:
         qd[mode] = {q: [] for q in quantities}
-    segments = {mode: [] for mode in modes}
-    regex = {
-        '2p': r'2p_([0-9]*)-([0-9]*)',
-        '4p': r'4p_.*_([0-9]*)-([0-9]*)',
-    }
+    segments = []
 
+    # for mode in modes:
+    #     p(f"### {mode} ###\n")
+    pattern = os.path.join(data_dir, '*.xlsx')
+    for path in np.sort(glob(pattern)):
+        # initialize data handler
+        dh = DataHandler(cp, path)
+
+        # get properties
+        name = dh.name
+        mode = dh.mode
+        segments.append(dh.segment)
+
+        p("---", name, "---")
+        for q in quantities:
+            value = dh.get(q)
+            qd[mode][q].append(value)
+            if verbosity > 0:
+                p(f"{q}:", value)
+
+            # set also for other modes but to np.nan
+            # if the file exist it will be overwritten
+            for mode_ in (set(modes)-set([mode])):
+                if q == "length":
+                    qd[mode_][q].append(qd[mode][q][-1])
+                else:
+                    qd[mode_][q].append(u.ufloat(np.nan, 0))
+
+        if verbosity > 1:
+            dh.inspect()
+
+    # create arrays from lists
+    segments = np.array(segments)
+    indeces = np.argsort(segments[:, 1])
+    segments.sort(axis=0)
     for mode in modes:
-        p(f"### {mode} ###\n")
-        pattern = os.path.join(data_dir, mode + '*.xlsx')
-        for path in np.sort(glob(pattern)):
-            # get pad numbers from path
-            name = os.path.splitext(os.path.basename(path))[0]
-            if mode in modes:
-                m = re.match(regex[mode], name, re.M)
-            segment = (int(m.group(1)), int(m.group(2)))
-            segments[mode].append(segment)
-
-            # initialize data handler
-            dh = DataHandler(cp, path, mode=mode, segment=segment)
-
-            p("---", name, "---")
-            for q in qd[mode]:
-                value = dh.get(q)
-                qd[mode][q].append(value)
-                if verbosity > 0:
-                    p(f"{q}:", value)
-
-            if verbosity > 1:
-                dh.inspect()
-
-        # create arrays from lists
-        segments[mode] = np.array(segments[mode])
-        indeces = np.argsort(segments[mode][:, 1])
-        segments[mode].sort(axis=0)
-        for q in qd[mode]:
+        for q in quantities:
             qd[mode][q] = np.array(qd[mode][q])[indeces]
 
     return qd, segments
@@ -309,8 +322,8 @@ def compute_quantities(data_dir, quantities, modes=['2p', '4p'], verbosity=1):
 
 if __name__ == "__main__":
     # chip = "SLC7"
-    chip = "SKC7"
-    # chip = "SIC1x"
+    # chip = "SKC7"
+    chip = "SIC1x"
     experiment = "4p_room-temp"
     chip_dir = os.path.join("data", chip)
     data_dir = os.path.join(chip_dir, experiment)
@@ -326,11 +339,11 @@ if __name__ == "__main__":
         ["length", "resistance"],
         ["length", "conductivity"],
     ]
-    modes = ['2p', '4p']
-    # modes = ['4p']
-    to_compute = np.unique(np.array(couples).flatten())
+    all_modes = DataHandler.MODES
+    quantities = np.unique(np.array(couples).flatten())
 
-    qd, segments = compute_quantities(data_dir, to_compute, modes=modes, verbosity=verbosity)
+    qd, segments = compute_quantities(data_dir, quantities, verbosity=verbosity)
+    print(qd)
 
     coeffs = linear_fit(qd['4p']["length"], qd['4p']["resistance"])
     resistivity = coeffs[0] * NUM_FIBERS * np.pi * FIBER_RADIUS**2
@@ -351,11 +364,43 @@ if __name__ == "__main__":
         'conductivity': r'conductivity [$S/cm$]',
     }
 
+    def get_lim(*arrays):
+        """Get limits for array a."""
+        max_a = 0
+        min_a = 0
+        for array in arrays:
+            a = unp.nominal_values(array)
+            max_a = np.nanmax([max_a, np.nanmax(a)])
+            min_a = np.nanmin([min_a, np.nanmin(a)])
+        padding = 0.1 * (max_a - min_a)
+        lim = [min_a - padding, max_a + padding]
+        return np.array(lim)
+
+    # create dictionary with available modes for each quantity
+    exclude = {'2p': ['conductivity'],
+               '4p': []}
+    modes = {}
+    for q in quantities:
+        modes[q] = []
+        for mode in all_modes:
+            if q in exclude[mode]:
+                continue
+            elif np.isnan(unp.nominal_values(qd[mode][q])).all():
+                print(f"Warning: Missing data. Skipping {mode}-{q}.")
+            else:
+                modes[q].append(mode)
+
     for qx, qy in couples:
-        fig, axs = plt.subplots(len(modes), 1)
-        if len(modes) == 1:
+        # decide which modes to iterate over
+        modes_ = set(modes[qx])-set(modes[qy])
+
+        # generate axis
+        fig, axs = plt.subplots(len(modes_), 1)
+        if len(modes_) == 1:
             axs = [axs]
-        for i, mode in enumerate(modes):
+
+        # plot quantities
+        for i, mode in enumerate(modes_):
             axs[i].set_title(f"{qy} vs {qx} ({mode})")
             x = unp.nominal_values(qd[mode][qx])
             y = unp.nominal_values(qd[mode][qy])
@@ -369,12 +414,18 @@ if __name__ == "__main__":
                 yerr=dy * factor[qy],
                 fmt='o',
                 label=f'{mode} data')
+            axs[i].set_xlim(factor[qx]*get_lim(x))
+            print(qx, qy)
             if qx == 'length' and qy == 'resistance' and mode == '4p':
+                print(qx, qy)
+                x = np.insert(x, 0, 0)
                 y1 = coeffs[0].nominal_value * x + coeffs[1].nominal_value
                 axs[i].plot(x*factor[qx], y1*factor[qy], '-', label=f'{mode} fit')
-            if qx == 'length' and qy == 'conductivity' and mode == '4p':
+            if qx == 'length' and qy == 'conductivity':
+                print(qx, qy)
                 y1 = conductivity.nominal_value*np.ones(x.shape)
                 axs[i].plot(x*factor[qx], y1*factor[qy], '-', label=f'{mode} fit')
+            axs[i].set_ylim(factor[qy]*get_lim(y, y1))
 
             axs[i].set_xlabel(label[qx])
             axs[i].set_ylabel(label[qy])
@@ -384,10 +435,11 @@ if __name__ == "__main__":
         plt.savefig(res_image)
 
     if '2p' in modes and '4p' in modes:
-        contact_resistance = []
-        for i, segment in enumerate(segments['2p']):
-            contact_resistance.append(qd['2p']['resistance'][i] - qd['4p']['resistance'][i])
-        contact_resistance = np.array(contact_resistance)
+        # contact_resistance = []
+        # for i, segment in enumerate(segments['2p']):
+        #     contact_resistance.append(qd['2p']['resistance'][i] - qd['4p']['resistance'][i])
+        # contact_resistance = np.array(contact_resistance)
+        contact_resistance = qd['2p']['resistance'] - qd['4p']['resistance']
 
         fig, ax = plt.subplots()
         ax.set_title("2p-4p resistance vs length")
@@ -401,6 +453,8 @@ if __name__ == "__main__":
             xerr=dx * factor['length'],
             yerr=dy * factor['resistance'],
             fmt='o')
+        ax.set_xlim(factor['length']*get_lim(qd['2p']['length']))
+        ax.set_ylim(factor['resistance']*get_lim(qd['2p']['resistance']))
         ax.set_xlabel(label['length'])
         ax.set_ylabel(label['resistance'])
         res_image = os.path.join(res_dir, f"{'4p-2p-resistance'}_vs_{'length'}.png")
