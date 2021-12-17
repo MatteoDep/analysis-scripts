@@ -337,7 +337,6 @@ if __name__ == "__main__":
     # define plots to produce
     couples = [
         ["length", "resistance"],
-        ["length", "conductivity"],
     ]
     all_modes = DataHandler.MODES
     quantities = np.unique(np.array(couples).flatten())
@@ -415,17 +414,13 @@ if __name__ == "__main__":
                 fmt='o',
                 label=f'{mode} data')
             axs[i].set_xlim(factor[qx]*get_lim(x))
-            print(qx, qy)
             if qx == 'length' and qy == 'resistance' and mode == '4p':
-                print(qx, qy)
                 x = np.insert(x, 0, 0)
                 y1 = coeffs[0].nominal_value * x + coeffs[1].nominal_value
                 axs[i].plot(x*factor[qx], y1*factor[qy], '-', label=f'{mode} fit')
-            if qx == 'length' and qy == 'conductivity':
-                print(qx, qy)
-                y1 = conductivity.nominal_value*np.ones(x.shape)
-                axs[i].plot(x*factor[qx], y1*factor[qy], '-', label=f'{mode} fit')
-            axs[i].set_ylim(factor[qy]*get_lim(y, y1))
+                axs[i].set_ylim(factor[qy]*get_lim(y, y1))
+            else:
+                axs[i].set_ylim(factor[qy]*get_lim(y))
 
             axs[i].set_xlabel(label[qx])
             axs[i].set_ylabel(label[qy])
