@@ -26,7 +26,7 @@ NUM_FIBERS = 60
 FIBER_RADIUS = (25 * ur.nanometer).plus_minus(0.1)
 
 
-def get_fit_args(x, y):
+def separate_measurement(x, y, strip_nan=False):
     """Get parameters to feed ODR from Quantities."""
     x_ = unp.nominal_values(strip_units(x))
     y_ = unp.nominal_values(strip_units(y))
@@ -34,11 +34,12 @@ def get_fit_args(x, y):
     dy = unp.std_devs(strip_units(y))
 
     # strip nan values
-    indeces = np.isnan(x_*y_) == 0
-    x_ = x_[indeces]
-    y_ = y_[indeces]
-    dx = dx[indeces]
-    dy = dy[indeces]
+    if strip_nan:
+        indeces = np.isnan(x_*y_) == 0
+        x_ = x_[indeces]
+        y_ = y_[indeces]
+        dx = dx[indeces]
+        dy = dy[indeces]
 
     if (dx == 0).all():
         dx = None
@@ -98,7 +99,7 @@ def fit(x, y, model_name="linear", debug=False):
 
     odr_model = Model(model, estimate=estimate)
 
-    x_, y_, dx, dy = get_fit_args(x, y)
+    x_, y_, dx, dy = separate_measurement(x, y, strip_nan=True)
     if debug:
         print("x values:", x_)
         print("y values:", y_)
@@ -119,7 +120,7 @@ def fit(x, y, model_name="linear", debug=False):
     if debug:
         print("coeffs:", coeffs)
 
-    return coeffs, lambda x: model(res.beta, x)
+    return coeffs, lambda x, b=res.beta: model(b, x)
 
 
 class ChipParameters():
@@ -247,7 +248,8 @@ class DataHandler():
         if hasattr(self, "iv_model"):
             axs[2].plot(self.current, self.iv_model(self.current))
 
-        plt.show()
+        filename = os.path.join(res_dir, self.name + ".png")
+        plt.savefig(filename)
 
     def get(self, quantity):
         """Call function to compute a certain quantity."""
@@ -267,7 +269,9 @@ class DataHandler():
 
     def _compute_resistance(self):
         """Compute resistance from current voltage curve."""
-        coeffs, self.iv_model = fit(self.current, self.voltage)
+        coeffs, iv_model = fit(self.current, self.voltage)
+        b = [coeffs[0].value, coeffs[1].value]
+        self.iv_model = lambda x: iv_model(x, b=b)
         self.resistance = coeffs[0]
         return self.resistance
 
@@ -320,16 +324,16 @@ def compute_quantities(data_dir, quantities, verbosity=1):
 
 
 if __name__ == "__main__":
-    chip = "SJC9"
+    # chip = "SJC9"
     # chip = "SKC6"
     # chip = "SLC7"
-    # chip = "SKC7"
+    chip = "SKC7"
     # chip = "SIC1x"
-    experiment = "4p_room-temp"
+    experiment = "room-temp_characterization"
     chip_dir = os.path.join("data", chip)
     data_dir = os.path.join(chip_dir, experiment)
     res_dir = os.path.join("results", chip, experiment)
-    verbosity = 1   # 0, 1 or 2
+    verbosity = 2   # 0, 1 or 2
 
     # load chip parameters
     cp = ChipParameters(os.path.join(chip_dir, chip + ".json"))
@@ -379,7 +383,7 @@ if __name__ == "__main__":
 
         x = qd[mode][qx]
         y = qd[mode][qy]
-        x_, y_, dx, dy = get_fit_args(x, y)
+        x_, y_, dx, dy = separate_measurement(x, y)
         if np.isnan(x_*y_).all():
             print(f"Warning: Missing data. Skipping {title}.")
             ax.remove()
@@ -401,3 +405,21 @@ if __name__ == "__main__":
 
         plt.tight_layout()
         plt.savefig(res_image)
+
+    fig, ax = plt.subplots()
+    contact_resistance = qd['2p'][qy] - qd['4p'][qy]
+    pp.pprint(qd['2p'][qx])
+    pp.pprint(qd['4p'][qx])
+    x = qd['4p'][qx]
+    y = contact_resistance
+    x_, y_, dx, dy = separate_measurement(x, y)
+
+    ax.errorbar(x_, y_, xerr=dx, yerr=dy, fmt='o', label=f'{mode} data')
+    ax.set_xlabel(f"{qy} [${x.units:~L}$]")
+    ax.set_ylabel(f"{qy} [${y.units:~L}$]")
+    res_image = os.path.join(res_dir, f"contact-{qy}_vs_{qx}.png")
+    ax.set_xlim(get_lim(x_))
+    ax.set_ylim(get_lim(y_))
+
+    plt.tight_layout()
+    plt.savefig(res_image)

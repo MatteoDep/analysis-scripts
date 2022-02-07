@@ -1,5 +1,0 @@
-The maximum input is: 1.0028153497766081e-09 A or V
-The maximum signal is: 0.09204969704388274 V or A
-The waiting time is: 0.1 s
-The measurement time is: 27.192903757095337 s
-First column is input, second is output, third is empty, fourth is temperature, fifth is time,sixth is arm temperature, seventh is cold head temperature
