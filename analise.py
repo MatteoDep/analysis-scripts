@@ -21,9 +21,39 @@ from uncertainties import unumpy as unp
 ur = UnitRegistry()
 ur.setup_matplotlib()
 pp = pprint.PrettyPrinter()
-MODES = ['2p', '4p']
+MODES = {'2p', '4p'}
 NUM_FIBERS = 60
-FIBER_RADIUS = (25 * ur.nanometer).plus_minus(0.1)
+FIBER_RADIUS = (25 * ur.nanometer).plus_minus(3)
+
+
+def make_compatible(qd, q_ref):
+    """Set q_ref arrays to be the same for each mode and add nans to make the length of other quantities the same."""
+    # build ref
+    first = True
+    for mode in MODES:
+        if first:
+            ref = qd[mode][q_ref]
+            first = False
+        else:
+            for elem in qd[mode][q_ref]:
+                if elem not in ref:
+                    np.append(ref, elem)
+    ref = np.sort(ref)
+
+    # adjust sizes
+    for mode in MODES:
+        for elem in ref:
+            if elem not in qd[mode][q_ref]:
+                qd[mode][q_ref] = np.append(qd[mode][q_ref], elem)
+                for q in set(qd[mode].keys()) - set([q_ref]):
+                    qd[mode][q] = np.append(qd[mode][q], np.nan)
+
+        # sort arrays
+        indices = np.argsort(qd[mode][q_ref])
+        for q in qd[mode].keys():
+            qd[mode][q] = qd[mode][q][indices]
+
+    return qd
 
 
 def separate_measurement(x, y, strip_nan=False):
@@ -35,11 +65,11 @@ def separate_measurement(x, y, strip_nan=False):
 
     # strip nan values
     if strip_nan:
-        indeces = np.isnan(x_*y_) == 0
-        x_ = x_[indeces]
-        y_ = y_[indeces]
-        dx = dx[indeces]
-        dy = dy[indeces]
+        indices = np.isnan(x_*y_) == 0
+        x_ = x_[indices]
+        y_ = y_[indices]
+        dx = dx[indices]
+        dy = dy[indices]
 
     if (dx == 0).all():
         dx = None
@@ -50,8 +80,10 @@ def separate_measurement(x, y, strip_nan=False):
 
 def strip_units(a):
     """Strip unit from Quantity x."""
-    if isinstance(a, (np.ndarray, list)):
+    if isinstance(a, np.ndarray):
         s = np.array([strip_units(x) for x in a])
+    if isinstance(a, list):
+        s = [strip_units(x) for x in a]
     elif hasattr(a, "magnitude"):
         s = a.magnitude
     else:
@@ -281,7 +313,6 @@ def compute_quantities(data_dir, quantities, verbosity=1):
     qd = {mode: {} for mode in MODES}
     for mode in MODES:
         qd[mode] = {q: [] for q in quantities}
-    segments = []
     units = {}
 
     pattern = os.path.join(data_dir, '*.xlsx')
@@ -292,7 +323,6 @@ def compute_quantities(data_dir, quantities, verbosity=1):
         # get properties
         name = dh.name
         mode = dh.mode
-        segments.append(dh.segment)
 
         if verbosity > 0:
             print(f"\rLoading {name}", flush=True, end="")
@@ -302,14 +332,6 @@ def compute_quantities(data_dir, quantities, verbosity=1):
             if q not in units:
                 units[q] = value.units
 
-            # set also for other modes but to np.nan
-            # if the file exist it will be overwritten
-            for mode_ in (set(MODES)-set([mode])):
-                if q == "length":
-                    qd[mode_][q].append(qd[mode][q][-1])
-                else:
-                    qd[mode_][q].append(np.nan)
-
         if verbosity > 1:
             dh.inspect()
     if verbosity > 0:
@@ -318,7 +340,7 @@ def compute_quantities(data_dir, quantities, verbosity=1):
     # create arrays from lists
     for mode in MODES:
         for q in quantities:
-            qd[mode][q] = strip_units(qd[mode][q]) * units[q]
+            qd[mode][q] = np.array(strip_units(qd[mode][q])) * units[q]
 
     return qd
 
@@ -343,13 +365,15 @@ if __name__ == "__main__":
     quantities = ["length", "resistance"]
 
     qd = compute_quantities(data_dir, quantities, verbosity=verbosity)
+    pp.pprint(qd)
+    qd = make_compatible(qd, 'length')
     if verbosity > 1:
         pp.pprint(qd)
     # order quantities and assign better units
-    indeces = np.argsort(qd['2p']["length"])
+    indices = np.argsort(qd['2p']["length"])
     for m in MODES:
-        qd[m]["length"] = qd[m]["length"][indeces].to("micrometer")
-        qd[m]["resistance"] = qd[m]["resistance"][indeces].to("megaohm")
+        qd[m]["length"] = qd[m]["length"][indices].to("micrometer")
+        qd[m]["resistance"] = qd[m]["resistance"][indices].to("megaohm")
 
     coeffs, reslen_model = fit(qd['4p']["length"], qd['4p']["resistance"])
     resistivity = (coeffs[0] * NUM_FIBERS * np.pi * FIBER_RADIUS**2).to('ohm * cm')
@@ -408,8 +432,6 @@ if __name__ == "__main__":
 
     fig, ax = plt.subplots()
     contact_resistance = qd['2p'][qy] - qd['4p'][qy]
-    pp.pprint(qd['2p'][qx])
-    pp.pprint(qd['4p'][qx])
     x = qd['4p'][qx]
     y = contact_resistance
     x_, y_, dx, dy = separate_measurement(x, y)
