@@ -26,6 +26,25 @@ NUM_FIBERS = 60
 FIBER_RADIUS = (25 * ur.nanometer).plus_minus(3)
 
 
+def measurement_is_equal(x, y):
+    """Compare 2 independent measurements."""
+    x_, dx = separate_measurement(x)
+    y_, dy = separate_measurement(y)
+    if x_ == y_ and dx == dy:
+        return True
+    return False
+
+
+def measurement_is_present(x, arr):
+    """Check if x is present in arr."""
+    x_, dx = separate_measurement(x)
+    arr_, darr = separate_measurement(arr)
+    for y in arr:
+        if measurement_is_equal(x, y):
+            return True
+    return False
+
+
 def make_compatible(qd, q_ref):
     """Set q_ref arrays to be the same for each mode and add nans to make the length of other quantities the same."""
     # build ref
@@ -35,16 +54,17 @@ def make_compatible(qd, q_ref):
             ref = qd[mode][q_ref]
             first = False
         else:
-            for elem in qd[mode][q_ref]:
-                if elem not in ref:
-                    np.append(ref, elem)
+            for x in qd[mode][q_ref]:
+                if not measurement_is_present(x, ref):
+                    np.append(ref, x)
     ref = np.sort(ref)
+    print(ref)
 
     # adjust sizes
     for mode in MODES:
-        for elem in ref:
-            if elem not in qd[mode][q_ref]:
-                qd[mode][q_ref] = np.append(qd[mode][q_ref], elem)
+        for x in ref:
+            if not measurement_is_present(x, qd[mode][q_ref]):
+                qd[mode][q_ref] = np.append(qd[mode][q_ref], x)
                 for q in set(qd[mode].keys()) - set([q_ref]):
                     qd[mode][q] = np.append(qd[mode][q], np.nan)
 
@@ -56,26 +76,25 @@ def make_compatible(qd, q_ref):
     return qd
 
 
-def separate_measurement(x, y, strip_nan=False):
+def separate_measurement(x):
     """Get parameters to feed ODR from Quantities."""
     x_ = unp.nominal_values(strip_units(x))
-    y_ = unp.nominal_values(strip_units(y))
     dx = unp.std_devs(strip_units(x))
-    dy = unp.std_devs(strip_units(y))
-
-    # strip nan values
-    if strip_nan:
-        indices = np.isnan(x_*y_) == 0
-        x_ = x_[indices]
-        y_ = y_[indices]
-        dx = dx[indices]
-        dy = dy[indices]
 
     if (dx == 0).all():
         dx = None
-    if (dy == 0).all():
-        dy = None
-    return x_, y_, dx, dy
+    return x_, dx
+
+
+def strip_nan(*args):
+    """Strip value if is NaN in any of the arguments."""
+    args = [x for x in args if x is not None]
+    prod = True
+    for x in args:
+        prod *= x
+    indices = np.isnan(prod) == 0
+    for x in args:
+        x = x[indices]
 
 
 def strip_units(a):
@@ -131,7 +150,9 @@ def fit(x, y, model_name="linear", debug=False):
 
     odr_model = Model(model, estimate=estimate)
 
-    x_, y_, dx, dy = separate_measurement(x, y, strip_nan=True)
+    x_, dx = separate_measurement(x)
+    y_, dy = separate_measurement(y)
+    strip_nan(x_, y_, dx, dy)
     if debug:
         print("x values:", x_)
         print("y values:", y_)
@@ -407,7 +428,8 @@ if __name__ == "__main__":
 
         x = qd[mode][qx]
         y = qd[mode][qy]
-        x_, y_, dx, dy = separate_measurement(x, y)
+        x_, dx = separate_measurement(x)
+        y_, dy = separate_measurement(y)
         if np.isnan(x_*y_).all():
             print(f"Warning: Missing data. Skipping {title}.")
             ax.remove()
@@ -434,7 +456,8 @@ if __name__ == "__main__":
     contact_resistance = qd['2p'][qy] - qd['4p'][qy]
     x = qd['4p'][qx]
     y = contact_resistance
-    x_, y_, dx, dy = separate_measurement(x, y)
+    x_, dx = separate_measurement(x)
+    y_, dy = separate_measurement(y)
 
     ax.errorbar(x_, y_, xerr=dx, yerr=dy, fmt='o', label=f'{mode} data')
     ax.set_xlabel(f"{qy} [${x.units:~L}$]")
