@@ -5,12 +5,10 @@ API for analysing data.
 """
 
 
-import os
 import re
 import json
 import numpy as np
 from scipy.odr import Model, RealData, ODR
-from matplotlib import pyplot as plt
 import pandas as pd
 from pint import UnitRegistry
 from uncertainties import unumpy as unp
@@ -21,6 +19,51 @@ ur.setup_matplotlib()
 MODES = {'2p', '4p'}
 NUM_FIBERS = 60
 FIBER_RADIUS = (25 * ur.nanometer).plus_minus(3)
+
+
+def load_data(path, order='vi'):
+    """Read data from files."""
+    # load data
+    d = pd.read_excel(path)
+    data = {}
+    if order == "iv":
+        data['current'] = np.array(d.loc[0]) * ur.A
+        data['voltage'] = np.array(d.loc[1]) * ur.V
+    elif order == "vi":
+        data['voltage'] = np.array(d.loc[0]) * ur.V
+        data['current'] = np.array(d.loc[1]) * ur.A
+    else:
+        raise ValueError(f"Unknown order '{order}'.")
+    data['time'] = np.array(d.loc[2]) * ur.s
+    data['temperature'] = np.array(d.loc[3]) * ur.K
+    return data
+
+
+def load_properties(path):
+    """Load properties file."""
+    raw_prop = json.load(open(path))
+    quantity_regex = r"([0-9\.]*)\s*([a-zA-Z]*)"
+    prop = {}
+    for name in raw_prop:
+        prop[name] = {}
+        for k in ['input', 'output', 'temperature']:
+            m = re.match(quantity_regex, raw_prop[name][k], re.M)
+            unit = ur[m.group(2)]
+            magnitude = float(m.group(1))
+            if k == 'temperature':
+                prop[name]['temperature'] = (magnitude * unit).to(ur.K)
+            elif unit.is_compatible_with(ur.V):
+                prop[name]['voltage'] = (magnitude * unit).to(ur.V)
+                if k == 'input':
+                    prop[name]['order'] = 'vi'
+                else:
+                    prop[name]['order'] = 'iv'
+            elif unit.is_compatible_with(ur.A):
+                prop[name]['current'] = (magnitude * unit).to(ur.A).magnitude
+        prop[name]['pair'] = raw_prop[name]['pair']
+        prop[name]['segment'] = ChipParameters.pair_to_segment(raw_prop[name]['pair'])
+        prop[name]['comment'] = raw_prop[name]['comment']
+    return prop
 
 
 def measurement_is_equal(x, y):
@@ -106,6 +149,12 @@ def strip_units(a):
     return s
 
 
+def qlist_to_array(x):
+    """Turn a quantity list in a numpy array."""
+    unit = x[0].units
+    return np.array(strip_units(x)) * unit
+
+
 def get_units(model_name, x, y):
     """Get units of model parameters."""
     if model_name == "linear":
@@ -172,6 +221,18 @@ def fit(x, y, model_name="linear", debug=False):
     return coeffs, lambda x, b=res.beta: model(b, x)
 
 
+def get_lim(*arrays):
+    """Get limits for array a."""
+    max_a = 0
+    min_a = 0
+    for array in arrays:
+        max_a = np.nanmax([max_a, np.nanmax(array)])
+        min_a = np.nanmin([min_a, np.nanmin(array)])
+    padding = 0.1 * (max_a - min_a)
+    lim = [min_a - padding, max_a + padding]
+    return np.array(lim)
+
+
 class ChipParameters():
     """Define chip parameters."""
 
@@ -223,9 +284,11 @@ class ChipParameters():
         print("\n")
 
     def get_distance(self, segment):
-        """Get distance between the contacts point correspondent to the pads."""
-        pad_high = min(segment)
-        pad_low = max(segment)
+        """Get distance between 2 contacts."""
+        if isinstance(segment, str):
+            segment = self.pair_to_segment(segment)
+        pad_high = np.amin(segment)
+        pad_low = np.amax(segment)
 
         count = 0
         distance = 0
@@ -243,83 +306,10 @@ class ChipParameters():
 
         return (distance * ur['m']).plus_minus(self.sigma)
 
+    @staticmethod
+    def segment_to_pair(segment):
+        return '-'.join([f"P{n}" for n in segment])
 
-class DataHandler():
-    """Functions to compute various quantities."""
-
-    def __init__(self, chip_parameters, path=None, **kwargs):
-        """Declare quantities."""
-        self.cp = chip_parameters
-
-        self.quantities = [a.split("_compute_")[1] for a in sorted(dir(self)) if a.startswith("_compute_")]
-
-        if path is not None:
-            self.load(path, **kwargs)
-
-    def load(self, path):
-        """Read data from files."""
-        self.name = os.path.splitext(os.path.basename(path))[0]
-
-        # get properties from name
-        regex = r'([vi]{2})([24]p).*_([0-9]+)-([0-9]+)$'
-        m = re.match(regex, self.name, re.M)
-        if m is None:
-            raise ValueError(f"File {path} does not match regex {regex}. Please stick to the naming convention.")
-        order = m.group(1)
-        self.mode = m.group(2)
-        if self.mode not in MODES:
-            raise ValueError(f"Unknown mode '{self.mode}'.")
-        self.segment = (int(m.group(3)), int(m.group(4)))
-
-        # load data
-        d = pd.read_excel(path)
-        if order == "iv":
-            self.current = np.array(d.loc[0]) * ur['A']
-            self.voltage = np.array(d.loc[1]) * ur['V']
-        elif order == "vi":
-            self.voltage = np.array(d.loc[0]) * ur['V']
-            self.current = np.array(d.loc[1]) * ur['A']
-        else:
-            raise ValueError(f"Unknown order '{order}'.")
-        self.time = np.array(d.loc[2]) * ur['s']
-        self.temperature = np.array(d.loc[3]) * ur['K']
-
-    def inspect(self, res_dir):
-        """Plot input/output over time and output over input."""
-        fig, axs = plt.subplots(3, 1)
-        plt.tight_layout()
-        fig.suptitle(self.name)
-
-        axs[0].plot(self.time, self.current, 'o')
-        axs[1].plot(self.time, self.voltage, 'o')
-        axs[2].plot(self.current, self.voltage, 'o')
-
-        if hasattr(self, "iv_model"):
-            axs[2].plot(self.current, self.iv_model(self.current))
-
-        filename = os.path.join(res_dir, self.name + ".png")
-        plt.savefig(filename)
-
-    def get(self, quantity):
-        """Call function to compute a certain quantity."""
-        if hasattr(self, quantity):
-            q = getattr(self, quantity)
-        elif hasattr(self, "_compute_" + quantity):
-            q = getattr(self, "_compute_" + quantity)()
-        else:
-            err = f"Computing {quantity} is not implemented.\navailable quantities are: {self.quantities}"
-            raise AttributeError(err)
-        return q
-
-    def _compute_length(self):
-        """Compute cable length between electrodes."""
-        self.length = self.cp.get_distance(self.segment)
-        return self.length
-
-    def _compute_resistance(self):
-        """Compute resistance from current voltage curve."""
-        coeffs, iv_model = fit(self.current, self.voltage)
-        b = [coeffs[0].value, coeffs[1].value]
-        self.iv_model = lambda x: iv_model(x, b=b)
-        self.resistance = coeffs[0]
-        return self.resistance
+    @staticmethod
+    def pair_to_segment(pair):
+        return np.array(pair.replace('P', '').split('-'), int)
