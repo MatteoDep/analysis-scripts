@@ -14,118 +14,107 @@ import analysis as a
 EXPERIMENT = 'light_effect'
 
 
-def get_zero_bias_conductance(voltage, current, max_bias, noise_thres=1e-12):
-    """Calculate low-bias conuctance."""
-    # prepare data
-    x = np.abs(a.strip_units(voltage))
-    condition = x < max_bias
-    indices = np.nonzero(condition)
-    voltage = voltage[indices]
-    current = current[indices]
-    if np.amax(current).to(a.ur.A).magnitude < noise_thres:
-        return np.nan * current.units / voltage.units
-
-    # correct offset
-    # current -= np.mean(current)
-
-    # calculate conductance
-    # conuctance = current / voltage
-    # conductance = np.mean(conuctance).plus_minus(np.std(conuctance))
-
-    # calculate conductance
-    coeffs, model = a.fit(voltage, current)
-    conductance = coeffs[0]
-
-    return conductance
-
-
-def get_conductance_at_bias(voltage, current, window):
-    """Calculate low-bias conuctance."""
-    # prepare data
-    x = a.strip_units(np.abs(voltage))
-    condition = (x > window[0]) * (x < window[1])
-    indices = np.nonzero(condition)
-    voltage = voltage[indices]
-    current = current[indices]
-
-    # calculate conductance
-    coeffs, model = a.fit(voltage, current)
-    conductance = coeffs[0]
-
-    return conductance
-
-
-def light_effect(chip, pair,
-                 data_dir=None, prop_path=None, res_dir=None,
-                 high_bias_window=[22.5, 23.5], low_bias_max=1.5,
-                 low_high_bias_thresh=15):
-    """Compute resistance over length characterization."""
-    if data_dir is None:
-        data_dir = os.path.join('data', EXPERIMENT, 'temperature_dependence', chip)
-    # create results dir if it doesn't exist
-    if res_dir is None:
-        res_dir = os.path.join("results", EXPERIMENT, "temperature_dependence", chip)
-    os.makedirs(res_dir, exist_ok=True)
-
+def temperature_dependence(names, props, data_dir, bias_window=None):
+    """Compute conductance over temperature with and without light."""
     # load data properties
-    if prop_path is None:
-        prop_path = os.path.join(data_dir, 'properties.json')
-    prop = a.load_properties(prop_path)
-
-    # load chip parameters
-    chip = a.ChipParameters(os.path.join("chips", chip + ".json"))
-
-    # check pair argument
-    if isinstance(pair, str):
-        segment = chip.pair_to_segment(pair)
-    elif isinstance(pair, list):
-        segment = pair
-        pair = chip.segment_to_pair(segment)
-
-    # length = chip.get_distance(segment)
-
-    regimes = ['zb', 'hb']
-    light_statuses = ['100%', 'dark']
-    conductance = {ls: {r: [] for r in regimes} for ls in light_statuses}
-    temperature = {ls: {r: [] for r in regimes} for ls in light_statuses}
-    for name in prop:
-        if prop[name]['pair'] != pair:
-            continue
-
+    conductance = []
+    temperature = []
+    for name in names:
         path = os.path.join(data_dir, name + '.xlsx')
-        data = a.load_data(path, order=prop[name]['order'])
+        data = a.load_data(path, order=props[name]['order'])
 
-        for ls_ in light_statuses:
-            if prop[name]['comment'].lower().find(ls_) > -1:
-                ls = ls_
+        conductance.append(
+            a.get_conductance(data['voltage'], data['current'], bias_window=bias_window)
+        )
+        temperature.append(np.mean(data['temperature']))
 
-        if prop[name]['voltage'] < low_high_bias_thresh * a.ur.V:
-            conductance[ls]['zb'].append(
-                get_zero_bias_conductance(data['voltage'], data['current'], low_bias_max)
+    temperature = a.qlist_to_array(temperature)
+    conductance = a.qlist_to_array(conductance)
+
+    return temperature, conductance
+
+
+if __name__ == "__main__":
+    chip = "SIC1x"
+    pair = "P27-P28"
+    data_dir = os.path.join('data', 'SIC1x')
+    res_dir = os.path.join('results', EXPERIMENT, 'SIC1x')
+    os.makedirs(res_dir, exist_ok=True)
+    prop_path = os.path.join(data_dir, 'properties.json')
+
+    cp = a.ChipParameters(os.path.join("chips", chip + ".json"))
+
+    segment = cp.pair_to_segment(pair)
+    length = cp.get_distance(segment)
+    print(f"Analyzing {chip} {pair} of length {length}.")
+
+    # temperature dependence
+    bias_window = {
+        'lb': [-1.5, 1.5],
+        'hb': [22, 24],
+    }
+    names = {
+        'lb': {
+            '100%': [
+                'SIC1x_725',
+                'SIC1x_729',
+                'SIC1x_733',
+                'SIC1x_737',
+                'SIC1x_741',
+            ],
+            'dark': [
+                'SIC1x_726',
+                'SIC1x_730',
+                'SIC1x_734',
+                'SIC1x_738',
+                'SIC1x_742',
+            ],
+        },
+        'hb': {
+            '100%': [
+                'SIC1x_711',
+                'SIC1x_715',
+                'SIC1x_719',
+                'SIC1x_723',
+                'SIC1x_727',
+                'SIC1x_731',
+                'SIC1x_735',
+                'SIC1x_739',
+            ],
+            'dark': [
+                'SIC1x_712',
+                'SIC1x_716',
+                'SIC1x_720',
+                'SIC1x_724',
+                'SIC1x_728',
+                'SIC1x_732',
+                'SIC1x_736',
+                'SIC1x_740',
+            ],
+        },
+    }
+
+    conductance = {}
+    temperature = {}
+    for r in names:
+        temperature[r] = {}
+        conductance[r] = {}
+        for ls in names[r]:
+            props = a.load_properties(prop_path, names[r][ls])
+            temperature[r][ls], conductance[r][ls] = temperature_dependence(
+                names[r][ls], props, data_dir, bias_window=bias_window[r]
             )
-            temperature[ls]['zb'].append(np.mean(data['temperature']))
-            pass
-        else:
-            conductance[ls]['hb'].append(
-                get_conductance_at_bias(data['voltage'], data['current'], high_bias_window)
-            )
-            temperature[ls]['hb'].append(np.mean(data['temperature']))
-    for ls in light_statuses:
-        for r in regimes:
-            temperature[ls][r] = a.qlist_to_array(temperature[ls][r])
-            conductance[ls][r] = a.qlist_to_array(conductance[ls][r]).to('nS')
 
     fig, ax = plt.subplots()
-    high_bias = np.mean(high_bias_window)
+    high_bias = np.mean(bias_window['hb'])
     labels = ["zero bias", f"high bias ({high_bias}V)"]
-    for r, label in zip(regimes, labels):
-        for ls in light_statuses:
-            x = 100 / temperature[ls][r]
-            y = conductance[ls][r]
+    for r, label in zip(names.keys(), labels):
+        for ls in names[r]:
+            x = 100 / temperature[r][ls]
+            y = conductance[r][ls]
             x_, dx = a.separate_measurement(x)
             y_, dy = a.separate_measurement(y)
             ax.errorbar(x_, y_, xerr=dx, yerr=dy, fmt='o', label=f"{ls}, " + label)
-    # ax.plot(np.arange(10) + 1, np.ones(10)*150/8, label="not pasted")
     ax.set_title("Light Effect Conductance")
     ax.set_xlabel(f"100/T [${x.units:~L}$]")
     ax.set_ylabel(f"G [${y.units:~L}$]")
@@ -137,11 +126,10 @@ def light_effect(chip, pair,
     plt.savefig(res_image, dpi=300)
 
     fig, ax = plt.subplots()
-    ref_temp = temperature['dark']['hb']
-    x = ref_temp
-    x_, dx = a.separate_measurement(x)
-    for r, label in zip(regimes, labels):
-        y = conductance['100%'][r] / conductance['dark'][r]
+    for r, label in zip(names.keys(), labels):
+        x = temperature[r]['dark']
+        x_, dx = a.separate_measurement(x)
+        y = conductance[r]['100%'] / conductance[r]['dark']
         y_, dy = a.separate_measurement(y)
         ax.errorbar(x_, y_, xerr=dx, yerr=dy, fmt='o', label=label)
     ax.set_title("Light Effect Relative Conductance")
@@ -152,10 +140,3 @@ def light_effect(chip, pair,
     plt.tight_layout()
     res_image = os.path.join(res_dir, "relative.png")
     plt.savefig(res_image, dpi=300)
-
-
-if __name__ == "__main__":
-    chip = "SIC1x"
-    pair = "P27-P28"
-
-    light_effect(chip, pair)

@@ -1,17 +1,14 @@
 #!/bin/sh
 
 usage(){
-    echo "$0 clip|file"
+    echo "$0 [file]"
+    echo "Create json file from table. If file is not given the content of the clipboard is used instead."
 }
 
-if echo "$1" | grep -qi 'clip'; then
+if [ -z "$1" ]; then
     clip=1
 elif [ -f "$1" ]; then
     file="$1"
-elif [ -z "$1" ]; then
-    echo "Missing argument"
-    usage
-    exit 1
 else
     echo "File $1 does not exist"
     usage
@@ -20,9 +17,9 @@ fi
 
 feed_table(){
     if [ $clip ]; then
-        xclip -sel clip -o | tr -d '\r' | grep '^\w'
+        xclip -sel clip -o | grep '^S' | tr -d '\r'
     else
-        grep '^\w' "$file"
+        grep '^S' "$file"
     fi
 }
 

@@ -39,12 +39,14 @@ def load_data(path, order='vi'):
     return data
 
 
-def load_properties(path):
+def load_properties(path, names=None):
     """Load properties file."""
     raw_prop = json.load(open(path))
     quantity_regex = r"([0-9\.]*)\s*([a-zA-Z]*)"
     prop = {}
     for name in raw_prop:
+        if names is not None and name not in names:
+            continue
         prop[name] = {}
         for k in ['input', 'output', 'temperature']:
             m = re.match(quantity_regex, raw_prop[name][k], re.M)
@@ -53,17 +55,34 @@ def load_properties(path):
             if k == 'temperature':
                 prop[name]['temperature'] = (magnitude * unit).to(ur.K)
             elif unit.is_compatible_with(ur.V):
-                prop[name]['voltage'] = (magnitude * unit).to(ur.V)
+                prop[name]['voltage'] = (magnitude * unit)
                 if k == 'input':
                     prop[name]['order'] = 'vi'
                 else:
                     prop[name]['order'] = 'iv'
             elif unit.is_compatible_with(ur.A):
-                prop[name]['current'] = (magnitude * unit).to(ur.A).magnitude
+                prop[name]['current'] = (magnitude * unit)
         prop[name]['pair'] = raw_prop[name]['pair']
         prop[name]['segment'] = ChipParameters.pair_to_segment(raw_prop[name]['pair'])
         prop[name]['comment'] = raw_prop[name]['comment']
     return prop
+
+
+def get_conductance(voltage, current, bias_window=None):
+    """Calculate conductance."""
+    # prepare data
+    if bias_window is not None:
+        condition = np.logical_and(voltage > bias_window[0] * ur.V,
+                                   voltage < bias_window[1] * ur.V)
+        indices = np.nonzero(condition)
+        voltage = voltage[indices]
+        current = current[indices]
+
+    # calculate conductance
+    coeffs, model = fit(voltage, current)
+    conductance = coeffs[0]
+
+    return conductance
 
 
 def measurement_is_equal(x, y):
@@ -312,4 +331,4 @@ class ChipParameters():
 
     @staticmethod
     def pair_to_segment(pair):
-        return np.array(pair.replace('P', '').split('-'), int)
+        return [int(x) for x in pair.replace('P', '').split('-')]
