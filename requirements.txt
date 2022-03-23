@@ -1,5 +1,6 @@
 numpy
 matplotlib
 pandas
+openpyxl
 scipy
 uncertainties

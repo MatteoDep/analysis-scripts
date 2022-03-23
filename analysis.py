@@ -5,81 +5,78 @@ API for analysing data.
 """
 
 
-import re
 import json
 import numpy as np
 from scipy.odr import Model, RealData, ODR
 import pandas as pd
-from pint import UnitRegistry
+import pint
 from uncertainties import unumpy as unp
 
 
-ur = UnitRegistry()
+ur = pint.UnitRegistry()
 ur.setup_matplotlib()
+Q = ur.Quantity
+ur.default_format = "+.2E~P"
+
 MODES = {'2p', '4p'}
 NUM_FIBERS = 60
 FIBER_RADIUS = (25 * ur.nanometer).plus_minus(3)
 
 
+DEFAULT_UNITS = {
+    'voltage': ur.V,
+    'current': ur.A,
+    'time': ur.s,
+    'temperature': ur.K,
+}
+
+
 def load_data(path, order='vi'):
     """Read data from files."""
     # load data
-    d = pd.read_excel(path)
+    df = pd.read_excel(path, skiprows=[5, 6]).T
     data = {}
-    if order == "iv":
-        data['current'] = np.array(d.loc[0]) * ur.A
-        data['voltage'] = np.array(d.loc[1]) * ur.V
-    elif order == "vi":
-        data['voltage'] = np.array(d.loc[0]) * ur.V
-        data['current'] = np.array(d.loc[1]) * ur.A
-    else:
-        raise ValueError(f"Unknown order '{order}'.")
-    data['time'] = np.array(d.loc[2]) * ur.s
-    data['temperature'] = np.array(d.loc[3]) * ur.K
+    keys = [o.replace('i', 'current').replace('v', 'voltage') for o in order.lower()] \
+        + ['time', 'temperature']
+    for i, key in enumerate(keys):
+        data[key] = Q(df[i].to_numpy(), DEFAULT_UNITS[key])
     return data
 
 
-def load_properties(path, names=None):
+def load_properties(path, names=None, sep='\t'):
     """Load properties file."""
-    raw_prop = json.load(open(path))
-    quantity_regex = r"([0-9\.]*)\s*([a-zA-Z]*)"
-    prop = {}
-    for name in raw_prop:
-        if names is not None and name not in names:
-            continue
-        prop[name] = {}
-        for k in ['input', 'output', 'temperature']:
-            m = re.match(quantity_regex, raw_prop[name][k], re.M)
-            unit = ur[m.group(2)]
-            magnitude = float(m.group(1))
-            if k == 'temperature':
-                prop[name]['temperature'] = (magnitude * unit).to(ur.K)
-            elif unit.is_compatible_with(ur.V):
-                prop[name]['voltage'] = (magnitude * unit)
-                if k == 'input':
-                    prop[name]['order'] = 'vi'
-                else:
-                    prop[name]['order'] = 'iv'
-            elif unit.is_compatible_with(ur.A):
-                prop[name]['current'] = (magnitude * unit)
-        prop[name]['pair'] = raw_prop[name]['pair']
-        prop[name]['segment'] = ChipParameters.pair_to_segment(raw_prop[name]['pair'])
-        prop[name]['comment'] = raw_prop[name]['comment']
-    return prop
+    df = pd.read_csv(path, sep=sep, index_col=0)
+    if names is None:
+        names = df.index
+    props = {}
+    oldcols = ['input', 'output']
+    for name in names:
+        props[name] = {}
+        props[name]['order'] = ''
+        props[name]['temperature'] = Q(df.loc[name, 'temperature'])
+        for k in oldcols:
+            q = Q(df.loc[name, k])
+            if q.is_compatible_with(ur.V):
+                props[name]['order'] += 'v'
+                props[name]['voltage'] = q
+            elif q.is_compatible_with(ur.A):
+                props[name]['order'] += 'i'
+                props[name]['current'] = q
+            else:
+                raise ValueError(f"Unrecognized units {q.units} of name {name}")
+    return props
 
 
-def get_conductance(voltage, current, bias_window=None):
+def get_conductance(data, bias_window=None):
     """Calculate conductance."""
     # prepare data
+    condition = data['voltage'] != 0
     if bias_window is not None:
-        condition = np.logical_and(voltage > bias_window[0] * ur.V,
-                                   voltage < bias_window[1] * ur.V)
-        indices = np.nonzero(condition)
-        voltage = voltage[indices]
-        current = current[indices]
+        condition *= (data['voltage'] > bias_window[0] * ur.V) \
+            * (data['voltage'] < bias_window[1] * ur.V)
 
     # calculate conductance
-    coeffs, model = fit(voltage, current)
+    coeffs, model = fit(data['voltage'][condition], data['current'][condition])
     conductance = coeffs[0]
 
     return conductance
@@ -323,7 +320,7 @@ class ChipParameters():
             if count == pad_high:
                 measure = True
 
-        return (distance * ur['m']).plus_minus(self.sigma)
+        return (distance * ur.m).plus_minus(self.sigma)
 
     @staticmethod
     def segment_to_pair(segment):

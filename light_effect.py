@@ -14,24 +14,76 @@ import analysis as a
 EXPERIMENT = 'light_effect'
 
 
-def temperature_dependence(names, props, data_dir, bias_window=None):
+def get_temperature_dependence(names, props, data_dir, bias_window=None):
     """Compute conductance over temperature with and without light."""
     # load data properties
-    conductance = []
-    temperature = []
+    conductance = [] * a.ur.S
+    temperature = [] * a.ur.K
     for name in names:
         path = os.path.join(data_dir, name + '.xlsx')
         data = a.load_data(path, order=props[name]['order'])
 
-        conductance.append(
-            a.get_conductance(data['voltage'], data['current'], bias_window=bias_window)
+        conductance = np.append(
+            conductance,
+            a.get_conductance(data, bias_window=bias_window)
         )
-        temperature.append(np.mean(data['temperature']))
-
-    temperature = a.qlist_to_array(temperature)
-    conductance = a.qlist_to_array(conductance)
-
+        temperature = np.append(
+            temperature,
+            np.mean(data['temperature']).plus_minus(np.std(data['temperature']))
+        )
     return temperature, conductance
+
+
+def cond_temp_dependence(names, cp, props, data_dir, res_dir,
+                         label="", hb_window=[22, 24], lb_window=[-1.5, 1.5]):
+    """Main analysis routine.
+    names: dictionary like {'lb':{ls1: [name1, name2, ...], ls2: [...], ...}, 'hb': {...}}.
+    """
+    conductance = {}
+    temperature = {}
+    for r, bw in zip(names.keys(), [lb_window, hb_window]):
+        temperature[r] = {}
+        conductance[r] = {}
+        for ls in names[r]:
+            temperature[r][ls], conductance[r][ls] = get_temperature_dependence(
+                names[r][ls], props, data_dir, bias_window=bw
+            )
+
+    fig, ax = plt.subplots()
+    high_bias = np.mean(hb_window)
+    labels = ["zero bias", f"high bias ({high_bias}V)"]
+    for r, label in zip(names.keys(), labels):
+        for ls in names[r]:
+            x = 100 / temperature[r][ls]
+            y = conductance[r][ls]
+            x_, dx = a.separate_measurement(x)
+            y_, dy = a.separate_measurement(y)
+            ax.errorbar(x_, y_, xerr=dx, yerr=dy, fmt='o', label=f"{ls}, " + label)
+    ax.set_title("Light Effect Conductance")
+    ax.set_xlabel(f"100/T [${x.units:~L}$]")
+    ax.set_ylabel(f"G [${y.units:~L}$]")
+    ax.set_xlim(a.get_lim(x_))
+    ax.set_yscale('log')
+    plt.legend()
+    plt.tight_layout()
+    res_image = os.path.join(res_dir, "conductance_vs_temperature.png")
+    plt.savefig(res_image, dpi=300)
+
+    fig, ax = plt.subplots()
+    for r, label in zip(names.keys(), labels):
+        x = temperature[r]['dark']
+        x_, dx = a.separate_measurement(x)
+        y = conductance[r]['100%'] / conductance[r]['dark']
+        y_, dy = a.separate_measurement(y)
+        ax.errorbar(x_, y_, xerr=dx, yerr=dy, fmt='o', label=label)
+    ax.set_title("Light Effect Relative Conductance")
+    ax.set_xlabel(f"T [${x.units:~L}$]")
+    ax.set_ylabel("G_light/G_dark")
+    ax.set_xlim(a.get_lim(x_))
+    plt.legend()
+    plt.tight_layout()
+    res_image = os.path.join(res_dir, "relative.png")
+    plt.savefig(res_image, dpi=300)
 
 
 if __name__ == "__main__":
@@ -39,20 +91,17 @@ if __name__ == "__main__":
     pair = "P27-P28"
     data_dir = os.path.join('data', 'SIC1x')
     res_dir = os.path.join('results', EXPERIMENT, 'SIC1x')
+    prop_path = os.path.join(data_dir, 'properties.csv')
+
     os.makedirs(res_dir, exist_ok=True)
-    prop_path = os.path.join(data_dir, 'properties.json')
-
     cp = a.ChipParameters(os.path.join("chips", chip + ".json"))
-
     segment = cp.pair_to_segment(pair)
     length = cp.get_distance(segment)
     print(f"Analyzing {chip} {pair} of length {length}.")
 
-    # temperature dependence
-    bias_window = {
-        'lb': [-1.5, 1.5],
-        'hb': [22, 24],
-    }
+    # load properties
+    props = a.load_properties(prop_path)
+
     names = {
         'lb': {
             '100%': [
@@ -93,50 +142,20 @@ if __name__ == "__main__":
             ],
         },
     }
+    cond_temp_dependence(names, cp, props, data_dir, res_dir, label="thermal_paste")
 
-    conductance = {}
-    temperature = {}
-    for r in names:
-        temperature[r] = {}
-        conductance[r] = {}
-        for ls in names[r]:
-            props = a.load_properties(prop_path, names[r][ls])
-            temperature[r][ls], conductance[r][ls] = temperature_dependence(
-                names[r][ls], props, data_dir, bias_window=bias_window[r]
-            )
-
-    fig, ax = plt.subplots()
-    high_bias = np.mean(bias_window['hb'])
-    labels = ["zero bias", f"high bias ({high_bias}V)"]
-    for r, label in zip(names.keys(), labels):
-        for ls in names[r]:
-            x = 100 / temperature[r][ls]
-            y = conductance[r][ls]
-            x_, dx = a.separate_measurement(x)
-            y_, dy = a.separate_measurement(y)
-            ax.errorbar(x_, y_, xerr=dx, yerr=dy, fmt='o', label=f"{ls}, " + label)
-    ax.set_title("Light Effect Conductance")
-    ax.set_xlabel(f"100/T [${x.units:~L}$]")
-    ax.set_ylabel(f"G [${y.units:~L}$]")
-    ax.set_xlim(a.get_lim(x_))
-    ax.set_yscale('log')
-    plt.legend()
-    plt.tight_layout()
-    res_image = os.path.join(res_dir, "conductance_vs_temperature.png")
-    plt.savefig(res_image, dpi=300)
-
-    fig, ax = plt.subplots()
-    for r, label in zip(names.keys(), labels):
-        x = temperature[r]['dark']
-        x_, dx = a.separate_measurement(x)
-        y = conductance[r]['100%'] / conductance[r]['dark']
-        y_, dy = a.separate_measurement(y)
-        ax.errorbar(x_, y_, xerr=dx, yerr=dy, fmt='o', label=label)
-    ax.set_title("Light Effect Relative Conductance")
-    ax.set_xlabel(f"T [${x.units:~L}$]")
-    ax.set_ylabel("G_light/G_dark")
-    ax.set_xlim(a.get_lim(x_))
-    plt.legend()
-    plt.tight_layout()
-    res_image = os.path.join(res_dir, "relative.png")
-    plt.savefig(res_image, dpi=300)
+    names = {
+        'lb': {
+            '100%': [
+            ],
+            'dark': [
+            ],
+        },
+        'hb': {
+            '100%': [
+            ],
+            'dark': [
+            ],
+        },
+    }
+    cond_temp_dependence(names, cp, props, data_dir, res_dir, label="nothing")
