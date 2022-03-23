@@ -35,7 +35,7 @@ def get_temperature_dependence(names, props, data_dir, bias_window=None):
 
 
 def cond_temp_dependence(names, cp, props, data_dir, res_dir,
-                         label="", hb_window=[22, 24], lb_window=[-1.5, 1.5]):
+                         prefix="", hb_window=[22, 24], lb_window=[-1.5, 1.5]):
     """Main analysis routine.
     names: dictionary like {'lb':{ls1: [name1, name2, ...], ls2: [...], ...}, 'hb': {...}}.
     """
@@ -50,8 +50,8 @@ def cond_temp_dependence(names, cp, props, data_dir, res_dir,
             )
 
     fig, ax = plt.subplots()
-    high_bias = np.mean(hb_window)
-    labels = ["zero bias", f"high bias ({high_bias}V)"]
+    ax.set_yscale('log')
+    labels = ["zero bias", f"high bias ({np.mean(hb_window)}V)"]
     for r, label in zip(names.keys(), labels):
         for ls in names[r]:
             x = 100 / temperature[r][ls]
@@ -63,10 +63,9 @@ def cond_temp_dependence(names, cp, props, data_dir, res_dir,
     ax.set_xlabel(f"100/T [${x.units:~L}$]")
     ax.set_ylabel(f"G [${y.units:~L}$]")
     ax.set_xlim(a.get_lim(x_))
-    ax.set_yscale('log')
     plt.legend()
     plt.tight_layout()
-    res_image = os.path.join(res_dir, "conductance_vs_temperature.png")
+    res_image = os.path.join(res_dir, prefix + "conductance_vs_temperature.png")
     plt.savefig(res_image, dpi=300)
 
     fig, ax = plt.subplots()
@@ -82,7 +81,7 @@ def cond_temp_dependence(names, cp, props, data_dir, res_dir,
     ax.set_xlim(a.get_lim(x_))
     plt.legend()
     plt.tight_layout()
-    res_image = os.path.join(res_dir, "relative.png")
+    res_image = os.path.join(res_dir, prefix + "relative.png")
     plt.savefig(res_image, dpi=300)
 
 
@@ -142,20 +141,46 @@ if __name__ == "__main__":
             ],
         },
     }
-    cond_temp_dependence(names, cp, props, data_dir, res_dir, label="thermal_paste")
+    cond_temp_dependence(names, cp, props, data_dir, res_dir, prefix="thermal_paste-")
 
     names = {
         'lb': {
             '100%': [
+                'SIC1x_812',
+                'SIC1x_817',
+                'SIC1x_822',
+                'SIC1x_827',
+                'SIC1x_832',
             ],
             'dark': [
+                'SIC1x_813',
+                'SIC1x_818',
+                'SIC1x_823',
+                'SIC1x_828',
+                'SIC1x_833',
             ],
         },
         'hb': {
             '100%': [
+                'SIC1x_800',
+                'SIC1x_803',
+                'SIC1x_805',
+                'SIC1x_810',
+                'SIC1x_815',
+                'SIC1x_820',
+                'SIC1x_825',
+                'SIC1x_830',
             ],
             'dark': [
+                'SIC1x_801',
+                'SIC1x_804',
+                'SIC1x_806',
+                'SIC1x_811',
+                'SIC1x_816',
+                'SIC1x_821',
+                'SIC1x_826',
+                'SIC1x_831',
             ],
         },
     }
-    cond_temp_dependence(names, cp, props, data_dir, res_dir, label="nothing")
+    cond_temp_dependence(names, cp, props, data_dir, res_dir, prefix="nothing-")
