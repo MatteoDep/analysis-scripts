@@ -11,9 +11,61 @@ from matplotlib import pyplot as plt
 import analysis as a
 
 
+def main():
+    global names, labels, res_names, titles, x_lim, y_lim, markersize
+    global show, correct_offset, plot_against_time
+    # check all parameters and arguments
+    if labels is None:
+        labels = [[None for name in names_] for names_ in names]
+    elif isinstance(labels, str):
+        fstring = ", ".join(["{0[" + key + "]}" for key in labels.split('-')])
+        labels = [[fstring.format(props[name]) for name in names_] for names_ in names]
+    if res_names is None:
+        res_paths = [os.path.join(res_dir, '-'.join(names_) + '.png') for names_ in names]
+    else:
+        res_paths = [os.path.join(res_dir, name + '.png') for name in res_names]
+
+    if plot_against_time:
+        x_key = 'time'
+        x_label = 'Time [s]'
+    else:
+        x_key = 'voltage'
+        x_label = 'Voltage [V]'
+    y_key = 'current'
+    y_label = 'Current [A]'
+
+    # for names, orders, labels, x_lim in zip(names_list, orders_list, labels_list, x_lim_list):
+    for i, names_ in enumerate(names):
+        fig, ax = plt.subplots()
+        for name, label in zip(names_, labels[i]):
+            path = os.path.join(data_dir, name + '.xlsx')
+            data = a.load_data(path, order=props[name]['order'])
+            x = data[x_key]
+            y = data[y_key]
+            if correct_offset:
+                if plot_against_time:
+                    y -= np.mean(y[:10])
+                else:
+                    y -= np.mean(y)
+            ax.scatter(x, y, label=label, s=markersize, edgecolors=None)
+        if titles is not None:
+            ax.set_title(titles[i])
+        ax.set_xlabel(x_label)
+        ax.set_ylabel(y_label)
+        if x_lim is not None:
+            ax.set_xlim(x_lim[i])
+        if y_lim is not None:
+            ax.set_ylim(y_lim[i])
+        if not np.array([label is None for label in labels[i]]).all():
+            plt.legend()
+        if show:
+            plt.show()
+        fig.savefig(res_paths[i], dpi=300)
+
+
 if __name__ == "__main__":
     # general
-    custom = False
+    show = True
     correct_offset = True
 
     # paths
@@ -24,10 +76,10 @@ if __name__ == "__main__":
     prop_path = os.path.join(data_dir, 'properties.csv')
     props = a.load_properties(prop_path)
 
-    # init variables to None
+    # defaults
     res_names = None
     titles = None
-    labels = None
+    labels = "names"
     markersize = 5
     x_lim = None
     y_lim = None
@@ -36,29 +88,45 @@ if __name__ == "__main__":
     plot_against_time = True
     markersize = 1
     names = [
-        ['SIC1x_772', 'SIC1x_773', 'SIC1x_774', 'SIC1x_775', 'SIC1x_776'],
-        ['SIC1x_788', 'SIC1x_789', 'SIC1x_790', 'SIC1x_791', 'SIC1x_792'],
-        ['SIC1x_835', 'SIC1x_836', 'SIC1x_837', 'SIC1x_838', 'SIC1x_839'],
+        ['SIC1x_802'],
+        ['SIC1x_809'],
+        ['SIC1x_814'],
+        ['SIC1x_819'],
+        ['SIC1x_824'],
+        ['SIC1x_829'],
+        ['SIC1x_834'],
     ]
-    titles = [
-        'termal paste (15K, 25V)',
-        'glass (10K, 10V)',
-        'nothing (15K, 25V)',
-    ]
-    res_names = [
-        'colors_thermal_paste',
-        'colors_glass',
-        'colors_nothing',
-    ]
-    labels = [
-        ['blue', 'red', 'green', 'white', 'dark']
-        for _ in names
-    ]
-    x_lim = [
-        [0, 150],
-        [0, 100],
-        [0, 150],
-    ]
+    titles = [f"{props[names_[0]]['temperature']:.0f~P}, {props[names_[0]]['voltage']:.0f~P}" for names_ in names]
+    res_names = ["switch_nothing_{0.magnitude}{0.units}".format(props[names_[0]]['temperature']) for names_ in names]
+    labels = None
+
+    # # presets per experiment
+    # plot_against_time = True
+    # markersize = 1
+    # names = [
+    #     ['SIC1x_772', 'SIC1x_773', 'SIC1x_774', 'SIC1x_775', 'SIC1x_776'],
+    #     ['SIC1x_788', 'SIC1x_789', 'SIC1x_790', 'SIC1x_791', 'SIC1x_792'],
+    #     ['SIC1x_835', 'SIC1x_836', 'SIC1x_837', 'SIC1x_838', 'SIC1x_839'],
+    # ]
+    # titles = [
+    #     'termal paste (15K, 25V)',
+    #     'glass (10K, 10V)',
+    #     'nothing (15K, 25V)',
+    # ]
+    # res_names = [
+    #     'colors_thermal_paste',
+    #     'colors_glass',
+    #     'colors_nothing',
+    # ]
+    # labels = [
+    #     ['blue', 'red', 'green', 'white', 'dark']
+    #     for _ in names
+    # ]
+    # x_lim = [
+    #     [0, 150],
+    #     [0, 100],
+    #     [0, 150],
+    # ]
 
     # plot_against_time = False
     # x_lim = None
@@ -99,44 +167,4 @@ if __name__ == "__main__":
     #     'iv_lb_82K',
     # ]
 
-    # check all parameters and arguments
-    if labels is None:
-        labels = names
-    if res_names is None:
-        res_paths = [os.path.join(res_dir, '-'.join(names_) + '.png') for names_ in names]
-    else:
-        res_paths = [os.path.join(res_dir, name + '.png') for name in res_names]
-
-    if plot_against_time:
-        x_key = 'time'
-        x_label = 'Time [s]'
-    else:
-        x_key = 'voltage'
-        x_label = 'Voltage [V]'
-    y_key = 'current'
-    y_label = 'Current [A]'
-
-    # for names, orders, labels, x_lim in zip(names_list, orders_list, labels_list, x_lim_list):
-    for i, names_ in enumerate(names):
-        fig, ax = plt.subplots()
-        for name, label in zip(names_, labels[i]):
-            path = os.path.join(data_dir, name + '.xlsx')
-            data = a.load_data(path, order=props[name]['order'])
-            x = data[x_key]
-            y = data[y_key]
-            if correct_offset:
-                if plot_against_time:
-                    y -= np.mean(y[:10])
-                else:
-                    y -= np.mean(y)
-            ax.scatter(x, y, label=label, s=markersize, edgecolors=None)
-        if titles is not None:
-            ax.set_title(titles[i])
-        ax.set_xlabel(x_label)
-        ax.set_ylabel(y_label)
-        if x_lim is not None:
-            ax.set_xlim(x_lim[i])
-        if y_lim is not None:
-            ax.set_ylim(y_lim[i])
-        plt.legend()
-        fig.savefig(res_paths[i], dpi=300)
+    main()
