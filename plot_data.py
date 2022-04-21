@@ -12,14 +12,20 @@ import analysis as a
 
 
 def main():
-    global names, labels, res_names, titles, x_lim, y_lim, markersize
-    global show, correct_offset, plot_against_time
+    global names, labels, res_names, titles, x_lim, y_lim, markersize, colors
+    global show, save, correct_offset, plot_against_time
     # check all parameters and arguments
     if labels is None:
         labels = [[None for name in names_] for names_ in names]
     elif isinstance(labels, str):
-        fstring = ", ".join(["{0[" + key + "]}" for key in labels.split('-')])
-        labels = [[fstring.format(props[name]) for name in names_] for names_ in names]
+        keys = labels.split('-')
+        fstring = ", ".join(["{0[" + key + "]}" for key in keys if key != 'name'])
+        if 'name' in keys:
+            labels = [[f"{name} " + fstring.format(props[name]) for name in names_] for names_ in names]
+        else:
+            labels = [[fstring.format(props[name]) for name in names_] for names_ in names]
+    if colors is None:
+        colors = [[None for name in names_] for names_ in names]
     if res_names is None:
         res_paths = [os.path.join(res_dir, '-'.join(names_) + '.png') for names_ in names]
     else:
@@ -34,10 +40,9 @@ def main():
     y_key = 'current'
     y_label = 'Current [A]'
 
-    # for names, orders, labels, x_lim in zip(names_list, orders_list, labels_list, x_lim_list):
     for i, names_ in enumerate(names):
         fig, ax = plt.subplots()
-        for name, label in zip(names_, labels[i]):
+        for name, label, color in zip(names_, labels[i], colors[i]):
             path = os.path.join(data_dir, name + '.xlsx')
             data = a.load_data(path, order=props[name]['order'])
             x = data[x_key]
@@ -47,25 +52,33 @@ def main():
                     y -= np.mean(y[:10])
                 else:
                     y -= np.mean(y)
-            ax.scatter(x, y, label=label, s=markersize, edgecolors=None)
+            ax.scatter(x, y, label=label, c=color, s=markersize, edgecolors=None)
         if titles is not None:
             ax.set_title(titles[i])
         ax.set_xlabel(x_label)
         ax.set_ylabel(y_label)
         if x_lim is not None:
-            ax.set_xlim(x_lim[i])
+            if x_lim == 'auto':
+                a.include_origin(ax, axis='x')
+            else:
+                ax.set_xlim(x_lim[i])
         if y_lim is not None:
-            ax.set_ylim(y_lim[i])
+            if y_lim == 'auto':
+                a.include_origin(ax, axis='y')
+            else:
+                ax.set_ylim(y_lim[i])
         if not np.array([label is None for label in labels[i]]).all():
             plt.legend()
         if show:
             plt.show()
-        fig.savefig(res_paths[i], dpi=300)
+        if save:
+            fig.savefig(res_paths[i], dpi=300)
 
 
 if __name__ == "__main__":
     # general
     show = True
+    save = False
     correct_offset = True
 
     # paths
@@ -79,56 +92,20 @@ if __name__ == "__main__":
     # defaults
     res_names = None
     titles = None
-    labels = "names"
+    labels = "name"
     markersize = 5
-    x_lim = None
-    y_lim = None
+    x_lim = 'auto'
+    y_lim = 'auto'
+    colors = None
+    plot_against_time = False
 
     # presets per experiment
-    plot_against_time = True
-    markersize = 1
+
     names = [
-        ['SIC1x_802'],
-        ['SIC1x_809'],
-        ['SIC1x_814'],
-        ['SIC1x_819'],
-        ['SIC1x_824'],
-        ['SIC1x_829'],
-        ['SIC1x_834'],
+        ['SIC1x_786', 'SIC1x_787'],
     ]
-    titles = [f"{props[names_[0]]['temperature']:.0f~P}, {props[names_[0]]['voltage']:.0f~P}" for names_ in names]
-    res_names = ["switch_nothing_{0.magnitude}{0.units}".format(props[names_[0]]['temperature']) for names_ in names]
-    labels = None
+    plot_against_time = True
 
-    # # presets per experiment
-    # plot_against_time = True
-    # markersize = 1
-    # names = [
-    #     ['SIC1x_772', 'SIC1x_773', 'SIC1x_774', 'SIC1x_775', 'SIC1x_776'],
-    #     ['SIC1x_788', 'SIC1x_789', 'SIC1x_790', 'SIC1x_791', 'SIC1x_792'],
-    #     ['SIC1x_835', 'SIC1x_836', 'SIC1x_837', 'SIC1x_838', 'SIC1x_839'],
-    # ]
-    # titles = [
-    #     'termal paste (15K, 25V)',
-    #     'glass (10K, 10V)',
-    #     'nothing (15K, 25V)',
-    # ]
-    # res_names = [
-    #     'colors_thermal_paste',
-    #     'colors_glass',
-    #     'colors_nothing',
-    # ]
-    # labels = [
-    #     ['blue', 'red', 'green', 'white', 'dark']
-    #     for _ in names
-    # ]
-    # x_lim = [
-    #     [0, 150],
-    #     [0, 100],
-    #     [0, 150],
-    # ]
-
-    # plot_against_time = False
     # x_lim = None
     # names = [
     #     ['SIC1x_711',  'SIC1x_712'],

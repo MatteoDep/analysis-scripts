@@ -16,9 +16,9 @@ ur.setup_matplotlib()
 
 
 if __name__ == "__main__":
-    data_dir = os.path.join("data", "light_calibration")
-    res_dir = os.path.join("results", "light_calibration")
-    freq = 640
+    data_dir = os.path.join("data", "light-calibration")
+    res_dir = os.path.join("results", "light-calibration")
+    freq = 532
 
     os.makedirs(res_dir, exist_ok=True)
     data_file = os.path.join(data_dir, f"{freq}.csv")

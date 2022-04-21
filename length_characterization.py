@@ -106,16 +106,16 @@ def length_characterization(chip, verbosity=0):
 
         x = qd[mode][qx]
         y = qd[mode][qy]
-        x_, dx = a.separate_measurement(x)
-        y_, dy = a.separate_measurement(y)
+        x_, dx, ux = a.separate_measurement(x)
+        y_, dy, uy = a.separate_measurement(y)
         if np.isnan(x_*y_).all():
             print(f"Warning: Missing data. Skipping {title}.")
             ax.remove()
             continue
 
         ax.errorbar(x_, y_, xerr=dx, yerr=dy, fmt='o', label=f'{mode} data')
-        ax.set_xlabel(f"{qy} [${x.units:~L}$]")
-        ax.set_ylabel(f"{qy} [${y.units:~L}$]")
+        ax.set_xlabel(f"{qx} [${ux:~L}$]")
+        ax.set_ylabel(f"{qy} [${uy:~L}$]")
         res_image = os.path.join(res_dir, f"{qy}_vs_{qx}.png")
         ax.set_xlim(a.get_lim(x_))
 
@@ -134,12 +134,12 @@ def length_characterization(chip, verbosity=0):
     contact_resistance = qd['2p'][qy] - qd['4p'][qy]
     x = qd['4p'][qx]
     y = contact_resistance
-    x_, dx = a.separate_measurement(x)
-    y_, dy = a.separate_measurement(y)
+    x_, dx, ux = a.separate_measurement(x)
+    y_, dy, uy = a.separate_measurement(y)
 
     ax.errorbar(x_, y_, xerr=dx, yerr=dy, fmt='o')
-    ax.set_xlabel(f"{qy} [${x.units:~L}$]")
-    ax.set_ylabel(f"{qy} [${y.units:~L}$]")
+    ax.set_xlabel(f"{qx} [${ux:~L}$]")
+    ax.set_ylabel(f"{qy} [${uy:~L}$]")
     ax.set_xlim(a.get_lim(x_))
     ax.set_ylim(a.get_lim(y_))
     res_image = os.path.join(res_dir, f"contact-{qy}_vs_{qx}.png")
