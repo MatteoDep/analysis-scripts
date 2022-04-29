@@ -157,7 +157,7 @@ def load_properties(path, names=None, sep='\t'):
 
 # COMPUTE QUANTITIES FROM DATA
 
-def get_conductance(data, method="auto", bias_window=None):
+def get_conductance(data, method="auto", bias_window=None, only_return=False, debug=False):
     """Calculate conductance."""
     if method == "auto":
         if bias_window is None:
@@ -170,6 +170,9 @@ def get_conductance(data, method="auto", bias_window=None):
 
     # prepare data
     cond = data['voltage'] != 0
+    if only_return:
+        time_window = np.array([0.25, 0.75]) * data['time'][-1]
+        cond *= is_between(data['time'], time_window)
     if bias_window is not None:
         if not hasattr(bias_window, 'units'):
             bias_window = bias_window * DEFAULT_UNITS['voltage']
@@ -177,7 +180,7 @@ def get_conductance(data, method="auto", bias_window=None):
 
     # calculate conductance
     if method == "fit":
-        coeffs, model = fit_linear(data['voltage'][cond], data['current'][cond])
+        coeffs, model = fit_linear(data['voltage'][cond], data['current'][cond], debug=debug)
         conductance = coeffs[0]
     elif method == "average":
         conductance = get_mean_std(data['current'][cond]/data['voltage'][cond])
