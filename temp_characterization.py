@@ -145,100 +145,120 @@ def capacitance_study(names):
 
 if __name__ == "__main__":
     chip = "SOC3"
-    pair = "P27-P28"
+    pair = "P2-P4"
     data_dir = os.path.join('data', chip)
     res_dir = os.path.join('results', EXPERIMENT, chip)
-    prop_path = os.path.join(data_dir, 'properties.csv')
 
     os.makedirs(res_dir, exist_ok=True)
     cp = a.ChipParameters(os.path.join("chips", chip + ".json"))
-    segment = cp.pair_to_segment(pair)
-    length = cp.get_distance(segment)
+    length = cp.get_distance(pair)
     print(f"Analyzing {chip} {pair} of length {a.nominal_values(length).to_compact()}.")
 
-    # load properties
-    props = a.load_properties(prop_path)
-
-    do = []
-    do.append('temp_dependence')
+    # do = []
+    # do.append('temp_dependence')
     # do.append('plot_ivs')
     # do.append('capacitance_study')
 
-    if 'temp_dependence' in do:
-        names = [
-            'SOC3_15',
-            'SOC3_16',
-            'SOC3_17',
-            'SOC3_18',
-            'SOC3_19',
-            'SOC3_20',
-            'SOC3_21',
-            'SOC3_22',
-            'SOC3_23',
-            'SOC3_24',
-            'SOC3_25',
-            'SOC3_26',
-            'SOC3_27',
-            'SOC3_28',
-            'SOC3_29',
-            'SOC3_30',
-            'SOC3_31',
-            'SOC3_32',
-            'SOC3_49',
-            'SOC3_50',
-            'SOC3_51',
-            'SOC3_52',
-            'SOC3_53',
-            'SOC3_54',
-            'SOC3_55',
-            'SOC3_56',
-            'SOC3_57',
-            'SOC3_58',
-            'SOC3_59',
-            'SOC3_60',
-            'SOC3_61',
-            'SOC3_62',
-            'SOC3_63',
-            'SOC3_64',
-            'SOC3_65',
-            'SOC3_66',
-            'SOC3_67',
-            'SOC3_68',
-            'SOC3_69',
-            'SOC3_70',
-            'SOC3_71',
-            'SOC3_72',
-            'SOC3_73',
-            'SOC3_74',
-            'SOC3_75',
-            'SOC3_76',
-            'SOC3_77',
-            'SOC3_78',
-            'SOC3_79',
-            'SOC3_80',
-            'SOC3_81',
-            'SOC3_82',
-            'SOC3_83',
-            'SOC3_84',
-            'SOC3_85',
-            'SOC3_86',
-            'SOC3_87',
-            'SOC3_88',
-            'SOC3_89',
-            'SOC3_90',
-        ]
-        temp_dependence(names)
+    dh = a.DataHandler(data_dir)
+    names = [
+        'SOC3_15',
+        'SOC3_16',
+        'SOC3_17',
+        'SOC3_18',
+        'SOC3_19',
+        'SOC3_20',
+        'SOC3_21',
+        'SOC3_22',
+        'SOC3_23',
+        'SOC3_24',
+        'SOC3_25',
+        'SOC3_26',
+        'SOC3_27',
+        'SOC3_28',
+        'SOC3_29',
+        'SOC3_30',
+        'SOC3_31',
+        'SOC3_32',
+    ]
+    for name in names:
+        dh.load_data(name)
+        dh.get_conductance
 
-    if 'plot_ivs' in do:
-        names = [f'SOC3_{i}' for i in range(90, 91)]
-        plot_ivs(names)
+    # if 'temp_dependence' in do:
+    #     names = [
+    #         'SOC3_15',
+    #         'SOC3_16',
+    #         'SOC3_17',
+    #         'SOC3_18',
+    #         'SOC3_19',
+    #         'SOC3_20',
+    #         'SOC3_21',
+    #         'SOC3_22',
+    #         'SOC3_23',
+    #         'SOC3_24',
+    #         'SOC3_25',
+    #         'SOC3_26',
+    #         'SOC3_27',
+    #         'SOC3_28',
+    #         'SOC3_29',
+    #         'SOC3_30',
+    #         'SOC3_31',
+    #         'SOC3_32',
+    #         'SOC3_49',
+    #         'SOC3_50',
+    #         'SOC3_51',
+    #         'SOC3_52',
+    #         'SOC3_53',
+    #         'SOC3_54',
+    #         'SOC3_55',
+    #         'SOC3_56',
+    #         'SOC3_57',
+    #         'SOC3_58',
+    #         'SOC3_59',
+    #         'SOC3_60',
+    #         'SOC3_61',
+    #         'SOC3_62',
+    #         'SOC3_63',
+    #         'SOC3_64',
+    #         'SOC3_65',
+    #         'SOC3_66',
+    #         'SOC3_67',
+    #         'SOC3_68',
+    #         'SOC3_69',
+    #         'SOC3_70',
+    #         'SOC3_71',
+    #         'SOC3_72',
+    #         'SOC3_73',
+    #         'SOC3_74',
+    #         'SOC3_75',
+    #         'SOC3_76',
+    #         'SOC3_77',
+    #         'SOC3_78',
+    #         'SOC3_79',
+    #         'SOC3_80',
+    #         'SOC3_81',
+    #         'SOC3_82',
+    #         'SOC3_83',
+    #         'SOC3_84',
+    #         'SOC3_85',
+    #         'SOC3_86',
+    #         'SOC3_87',
+    #         'SOC3_88',
+    #         'SOC3_89',
+    #         'SOC3_90',
+    #     ]
+    #     temp_dependence(names)
 
-    if 'capacitance_study' in do:
-        names = [
-            'SOC3_44',
-            'SOC3_45',
-            'SOC3_46',
-            # 'SOC3_47',
-            'SOC3_49',
-        ]
-        capacitance_study(names)
+    # if 'plot_ivs' in do:
+    #     names = [f'SOC3_{i}' for i in range(90, 91)]
+    #     plot_ivs(names)
+
+    # if 'capacitance_study' in do:
+    #     names = [
+    #         'SOC3_44',
+    #         'SOC3_45',
+    #         'SOC3_46',
+    #         # 'SOC3_47',
+    #         'SOC3_49',
+    #     ]
+    #     capacitance_study(names)

@@ -6,6 +6,7 @@ API for analysing data.
 
 
 import json
+import os
 import numpy as np
 from scipy.odr import Model, RealData, ODR
 import pandas as pd
@@ -119,104 +120,120 @@ class ChipParameters():
         return [int(x) for x in pair.replace('P', '').split('-')]
 
 
-def load_data(path, order='vi'):
-    """Read data from files."""
-    # load data
-    df = pd.read_excel(path, skiprows=[5, 6]).T
-    data = {}
-    keys = [o.replace('i', 'current').replace('v', 'voltage') for o in order.lower()] \
-        + ['time', 'temperature']
-    for i, key in enumerate(keys):
-        data[key] = Q(df[i].to_numpy(), DEFAULT_UNITS[key])
-    return data
-
-
-def load_properties(path, names=None, sep='\t'):
-    """Load properties file."""
-    df = pd.read_csv(path, sep=sep, index_col=0)
-    if names is None:
-        names = df.index
-    props = {}
-    oldcols = ['input', 'output']
-    for name in names:
-        props[name] = {}
-        props[name]['order'] = ''
-        props[name]['temperature'] = Q(df.loc[name, 'temperature'])
-        for k in oldcols:
-            q = Q(df.loc[name, k])
-            if q.is_compatible_with(ur.V):
-                props[name]['order'] += 'v'
-                props[name]['voltage'] = q
-            elif q.is_compatible_with(ur.A):
-                props[name]['order'] += 'i'
-                props[name]['current'] = q
-            else:
-                raise ValueError(f"Unrecognized units {q.units} of name {name}")
-    return props
-
-
 # COMPUTE QUANTITIES FROM DATA
 
-def get_conductance(data, method="auto", bias_window=None, only_return=False, debug=False):
-    """Calculate conductance."""
-    if method == "auto":
-        if bias_window is None:
-            method = "fit"
-        else:
-            if np.multiply(*bias_window) < 0:
+
+class DataHandler:
+    """
+    Loads data and builds quantities arrays.
+    """
+
+    def __init__(self, data_dir, **props_kwargs):
+        self.data_dir = data_dir
+        self.props = self.load_properties(props_kwargs)
+        self.quantities = [a.split("get_")[1] for a in sorted(dir(self)) if a.startswith("get_")]
+        pass
+
+    def load_properties(self, path=None, names=None):
+        """Load properties file."""
+        if path is None:
+            path = os.path.join(self.data_dir, 'properties.csv')
+        df = pd.read_csv(path, sep='\t', index_col=0)
+        if names is None:
+            names = df.index
+        self.props = {}
+        oldcols = ['input', 'output']
+        for name in names:
+            self.props[name] = {}
+            self.props[name]['order'] = ''
+            self.props[name]['temperature'] = Q(df.loc[name, 'temperature'])
+            for k in oldcols:
+                q = Q(df.loc[name, k])
+                if q.is_compatible_with(ur.V):
+                    self.props[name]['order'] += 'v'
+                    self.props[name]['voltage'] = q
+                elif q.is_compatible_with(ur.A):
+                    self.props[name]['order'] += 'i'
+                    self.props[name]['current'] = q
+                else:
+                    raise ValueError(f"Unrecognized units {q.units} of name {name}")
+        return self.props
+
+    def load_data(self, name):
+        """Read data from files."""
+        # load data
+        path = os.path.join(self.data_dir, name + '.xlsx')
+        df = pd.read_excel(path, skiprows=[5, 6]).T
+        self.data = {}
+        keys = [o.replace('i', 'current').replace('v', 'voltage') for o in self.props[name]['order']] \
+            + ['time', 'temperature']
+        for i, key in enumerate(keys):
+            self.data[key] = Q(df[i].to_numpy(), DEFAULT_UNITS[key])
+        return self.data
+
+    def get_conductance(self, method="auto", bias_window=None, only_return=False, debug=False):
+        """Calculate conductance."""
+        if method == "auto":
+            if bias_window is None:
                 method = "fit"
             else:
-                method = "average"
+                if np.multiply(*bias_window) < 0:
+                    method = "fit"
+                else:
+                    method = "average"
 
-    # prepare data
-    cond = data['voltage'] != 0
-    if only_return:
-        time_window = np.array([0.25, 0.75]) * data['time'][-1]
-        cond *= is_between(data['time'], time_window)
-    if bias_window is not None:
-        if not hasattr(bias_window, 'units'):
-            bias_window = bias_window * DEFAULT_UNITS['voltage']
-        cond *= is_between(data['voltage'], bias_window)
+        # prepare data
+        cond = self.data['voltage'] != 0
+        if only_return:
+            time_window = np.array([0.25, 0.75]) * self.data['time'][-1]
+            cond *= is_between(self.data['time'], time_window)
+        if bias_window is not None:
+            if not hasattr(bias_window, 'units'):
+                bias_window = bias_window * DEFAULT_UNITS['voltage']
+            cond *= is_between(self.data['voltage'], bias_window)
 
-    # calculate conductance
-    if method == "fit":
-        coeffs, model = fit_linear(data['voltage'][cond], data['current'][cond], debug=debug)
-        conductance = coeffs[0]
-    elif method == "average":
-        conductance = get_mean_std(data['current'][cond]/data['voltage'][cond])
-    else:
-        raise ValueError(f"Unrecognized method {method}.")
+        # calculate conductance
+        if method == "fit":
+            coeffs, model = fit_linear(self.data['voltage'][cond], self.data['current'][cond], debug=debug)
+            conductance = coeffs[0]
+        elif method == "average":
+            conductance = get_mean_std(self.data['current'][cond]/self.data['voltage'][cond])
+        else:
+            raise ValueError(f"Unrecognized method {method}.")
 
-    return conductance
+        return conductance
 
+    def get_tau(self, time_window, const_estimate_time=5*ur.s):
+        """Calculate time constant tau."""
+        t = self.data['time']
+        i = self.data['current']
+        if not hasattr(time_window, 'units'):
+            time_window *= DEFAULT_UNITS['time']
+        t_start = time_window[0]
+        t_end = time_window[1]
+        i_start = np.mean(self.data['current'][is_between(self.data['time'], [t_start - const_estimate_time, t_start])])
+        i_end = np.mean(self.data['current'][is_between(self.data['time'], [t_end - const_estimate_time, t_end])])
+        amp = i_start - i_end
+        offset = i_end
 
-def get_tau(data, time_window, const_estimate_time=5*ur.s):
-    """Calculate time constant tau."""
-    t = data['time']
-    i = data['current']
-    if not hasattr(time_window, 'units'):
-        time_window *= DEFAULT_UNITS['time']
-    t_start = time_window[0]
-    t_end = time_window[1]
-    i_start = np.mean(data['current'][is_between(data['time'], [t_start - const_estimate_time, t_start])])
-    i_end = np.mean(data['current'][is_between(data['time'], [t_end - const_estimate_time, t_end])])
-    amp = i_start - i_end
-    offset = i_end
+        cond = is_between(t, [t_start, t_end])
+        t_cut = t[cond]
+        i_cut = i[cond]
+        sign = (-1) ** int(amp < 0)
+        t_end_decay = t_cut[np.nonzero(sign * i_cut < sign * (amp * np.exp(-3) + offset))[0][0]]
 
-    cond = is_between(t, [t_start, t_end])
-    t_cut = t[cond]
-    i_cut = i[cond]
-    sign = (-1) ** int(amp < 0)
-    t_end_decay = t_cut[np.nonzero(sign * i_cut < sign * (amp * np.exp(-3) + offset))[0][0]]
+        cond = is_between(t, [t_start, t_end_decay])
+        x = t[cond]
+        y = np.log(sign * (i[cond] - offset).magnitude) * ur.dimensionless
 
-    cond = is_between(t, [t_start, t_end_decay])
-    x = t[cond]
-    y = np.log(sign * (i[cond] - offset).magnitude) * ur.dimensionless
+        coeffs, model = fit_linear(x, y)
+        tau = - 1 / coeffs[0]
 
-    coeffs, model = fit_linear(x, y)
-    tau = - 1 / coeffs[0]
+        return tau
 
-    return tau
+    def get_temperature(self):
+        self.temperature = get_mean_std(self.data['temperature'])
+        return self.temperature
 
 
 # MEASUREMENTS HELP FUNCTIONS
@@ -236,36 +253,6 @@ def measurement_is_present(x, arr):
         if measurement_is_equal(x, y):
             return True
     return False
-
-
-def make_compatible(qd, q_ref):
-    """Set q_ref arrays to be the same for each mode and add nans to make the length of other quantities the same."""
-    # build ref
-    first = True
-    for mode in MODES:
-        if first:
-            ref = qd[mode][q_ref]
-            first = False
-        else:
-            for x in qd[mode][q_ref]:
-                if not measurement_is_present(x, ref):
-                    np.append(ref, x)
-    ref = np.sort(ref)
-
-    # adjust sizes
-    for mode in MODES:
-        for x in ref:
-            if not measurement_is_present(x, qd[mode][q_ref]):
-                qd[mode][q_ref] = np.append(qd[mode][q_ref], x)
-                for q in set(qd[mode].keys()) - set([q_ref]):
-                    qd[mode][q] = np.append(qd[mode][q], np.nan)
-
-        # sort arrays
-        indices = np.argsort(qd[mode][q_ref])
-        for q in qd[mode].keys():
-            qd[mode][q] = qd[mode][q][indices]
-
-    return qd
 
 
 def separate_measurement(x):
@@ -290,23 +277,18 @@ def std_devs(x):
     return dx * u
 
 
-def strip_units(a):
+# TODO change to just x.magnitude
+def strip_units(x):
     """Strip unit from Quantity x."""
-    if hasattr(a, "magnitude"):
-        s = a.magnitude
-    elif isinstance(a, np.ndarray):
-        s = np.array([strip_units(x) for x in a])
-    elif isinstance(a, list):
-        s = [strip_units(x) for x in a]
+    if hasattr(x, "magnitude"):
+        s = x.magnitude
+    elif isinstance(x, np.ndarray):
+        s = np.array([strip_units(x_) for x_ in x])
+    elif isinstance(x, list):
+        s = [strip_units(x_) for x_ in x]
     else:
-        s = a
+        s = x
     return s
-
-
-def qlist_to_array(x):
-    """Turn a quantity list in a numpy array."""
-    unit = x[0].units
-    return np.array(strip_units(x)) * unit
 
 
 # ANALYSIS
@@ -404,17 +386,6 @@ def include_origin(ax, axis='xy'):
         lim = [min(lim[0], -d), max(lim[1], d)]
         getattr(ax, f"set_{a}lim")(lim)
     return ax
-
-
-def strip_nan(*args):
-    """Strip value if is NaN in any of the arguments."""
-    args = [x for x in args if x is not None]
-    prod = True
-    for x in args:
-        prod *= x
-    indices = np.isnan(prod) == 0
-    for x in args:
-        x = x[indices]
 
 
 def is_between(x, window):

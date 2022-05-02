@@ -14,31 +14,6 @@ import analysis as a
 def main():
     global names, labels, res_names, titles, x_lim, y_lim, markersize, colors
     global show, save, correct_offset, plot_against_time
-    # check all parameters and arguments
-    if labels is None:
-        labels = [[None for name in names_] for names_ in names]
-    elif isinstance(labels, str):
-        keys = labels.split('-')
-        fstring = ", ".join(["{0[" + key + "]}" for key in keys if key != 'name'])
-        if 'name' in keys:
-            labels = [[f"{name} " + fstring.format(props[name]) for name in names_] for names_ in names]
-        else:
-            labels = [[fstring.format(props[name]) for name in names_] for names_ in names]
-    if colors is None:
-        colors = [[None for name in names_] for names_ in names]
-    if res_names is None:
-        res_paths = [os.path.join(res_dir, '-'.join(names_) + '.png') for names_ in names]
-    else:
-        res_paths = [os.path.join(res_dir, name + '.png') for name in res_names]
-
-    if plot_against_time:
-        x_key = 'time'
-        x_label = 'Time [s]'
-    else:
-        x_key = 'voltage'
-        x_label = 'Voltage [V]'
-    y_key = 'current'
-    y_label = 'Current [A]'
 
     for i, names_ in enumerate(names):
         fig, ax = plt.subplots()
@@ -143,5 +118,31 @@ if __name__ == "__main__":
     #     'iv_hb_82K',
     #     'iv_lb_82K',
     # ]
+
+    # check all parameters and arguments
+    if labels is None:
+        labels = [[None for name in names_] for names_ in names]
+    elif isinstance(labels, str):
+        keys = labels.split('-')
+        fstring = ", ".join(["{0[" + key + "]}" for key in keys if key != 'name'])
+        if 'name' in keys:
+            labels = [[f"{name} " + fstring.format(props[name]) for name in names_] for names_ in names]
+        else:
+            labels = [[fstring.format(props[name]) for name in names_] for names_ in names]
+    if colors is None:
+        colors = [[None for name in names_] for names_ in names]
+    if res_names is None:
+        res_paths = [os.path.join(res_dir, '-'.join(names_) + '.png') for names_ in names]
+    else:
+        res_paths = [os.path.join(res_dir, name + '.png') for name in res_names]
+
+    if plot_against_time:
+        x_key = 'time'
+        x_label = 'Time [s]'
+    else:
+        x_key = 'voltage'
+        x_label = 'Voltage [V]'
+    y_key = 'current'
+    y_label = 'Current [A]'
 
     main()
