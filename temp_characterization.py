@@ -21,6 +21,7 @@ def temp_dependence(names):
     global data_dir, res_dir, props
 
     # compute temperature and conductance
+    bias_window = [-0.5, 0.5] * a.ur.V
     conductance = [] * a.ur.S
     temperature = [] * a.ur.K
     for name in names:
@@ -28,10 +29,6 @@ def temp_dependence(names):
         data = a.load_data(path, order=props[name]['order'])
 
         temperature0 = a.get_mean_std(data['temperature'])
-        if temperature0 > 40 * a.ur.K:
-            bias_window = [-0.5, 0.5] * a.ur.V
-        else:
-            bias_window = [-1.5, 1.5] * a.ur.V
         conductance0 = a.get_conductance(data, bias_window=bias_window, only_return=True)
         conductance = np.append(conductance, conductance0)
         temperature = np.append(temperature, temperature0)
