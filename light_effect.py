@@ -15,6 +15,35 @@ import analysis as a
 EXPERIMENT = 'light_effect'
 
 
+def get_tau(self, time_window, const_estimate_time=5*a.ur.s):
+    """Calculate time constant tau."""
+    t = self.data['time']
+    i = self.data['current']
+    if not hasattr(time_window, 'units'):
+        time_window *= a.DEFAULT_UNITS['time']
+    t_start = time_window[0]
+    t_end = time_window[1]
+    i_start = np.mean(self.data['current'][a.is_between(self.data['time'], [t_start - const_estimate_time, t_start])])
+    i_end = np.mean(self.data['current'][a.is_between(self.data['time'], [t_end - const_estimate_time, t_end])])
+    amp = i_start - i_end
+    offset = i_end
+
+    cond = a.is_between(t, [t_start, t_end])
+    t_cut = t[cond]
+    i_cut = i[cond]
+    sign = (-1) ** int(amp < 0)
+    t_end_decay = t_cut[np.nonzero(sign * i_cut < sign * (amp * np.exp(-3) + offset))[0][0]]
+
+    cond = a.is_between(t, [t_start, t_end_decay])
+    x = t[cond]
+    y = np.log(sign * (i[cond] - offset).magnitude) * a.ur.dimensionless
+
+    coeffs, model = a.fit_linear(x, y)
+    tau = - 1 / coeffs[0]
+
+    return tau
+
+
 def get_temperature_dependence(names, props, **get_conductance_kwargs):
     """Compute conductance over temperature with and without light."""
     global data_dir
@@ -156,7 +185,7 @@ def time_constant(names, switches):
                 time_window = np.append([switch], switch + dt)
                 tau[key][d] = np.append(
                     tau[key][d],
-                    a.get_tau(data, time_window)
+                    get_tau(data, time_window)
                 )
             temperature[key] = np.append(
                 temperature[key],

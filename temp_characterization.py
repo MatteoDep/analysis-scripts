@@ -180,9 +180,13 @@ if __name__ == "__main__":
         'SOC3_31',
         'SOC3_32',
     ]
-    for name in names:
-        dh.load_data(name)
-        dh.get_conductance
+
+    temperature, conductance = dh.get(
+        names,
+        ('temperature', 'conductance'),
+    )
+    print("temperature:", temperature)
+    print("conductance:", conductance)
 
     # if 'temp_dependence' in do:
     #     names = [
