@@ -23,7 +23,6 @@ ur.setup_matplotlib()
 Q = ur.Quantity
 ur.default_format = "~P"
 
-MODES = {'2p', '4p'}
 NUM_FIBERS = 60
 FIBER_RADIUS = (25 * ur.nanometer).plus_minus(3)
 
@@ -33,6 +32,8 @@ DEFAULT_UNITS = {
     'current': ur.A,
     'time': ur.s,
     'temperature': ur.K,
+    'conductance': ur.S,
+    'length': ur.m,
 }
 
 
@@ -43,16 +44,11 @@ class DataHandler:
     Loads data and builds quantities arrays.
     """
 
-    def __init__(self, data_dir, **props_kwargs):
+    def __init__(self, data_dir, chips_dir='chips', **props_kwargs):
         self.data_dir = data_dir
+        self.chips_dir = chips_dir
         self.props = self.load_properties(**props_kwargs)
-        self.qd = {
-            'conductance': ur.S,
-            'tau': ur.s,
-            'temperature': ur.K,
-            'length': ur.um,
-        }
-        self.cp = {}
+        self.chips = {}
         pass
 
     def load_properties(self, path=None, names=None):
@@ -66,8 +62,10 @@ class DataHandler:
         oldcols = ['input', 'output']
         for name in names:
             self.props[name] = {}
-            self.props[name]['order'] = ''
+            self.props[name]['pair'] = df.loc[name, 'pair']
+            self.props[name]['injection'] = df.loc[name, 'injection']
             self.props[name]['temperature'] = Q(df.loc[name, 'temperature'])
+            self.props[name]['order'] = ''
             for k in oldcols:
                 q = Q(df.loc[name, k])
                 if q.is_compatible_with(ur.V):
@@ -80,13 +78,21 @@ class DataHandler:
                     raise ValueError(f"Unrecognized units {q.units} of name {name}")
         return self.props
 
-    def load_data(self, name):
+    def load(self, name):
         """Read data from files."""
+        # reset quantities
+        resetnot = ['data_dir', 'chips_dir', 'props', 'chips']
+        attributes = [x for x in dir(self) if not callable(getattr(self, x)) and not x.startswith('__')]
+        for x in attributes:
+            if x not in resetnot:
+                setattr(self, x, None)
         # load data
+        self.name = name
+        self.prop = self.props[name]
         path = os.path.join(self.data_dir, name + '.xlsx')
         df = pd.read_excel(path, skiprows=[5, 6]).T
         self.data = {}
-        keys = [o.replace('i', 'current').replace('v', 'voltage') for o in self.props[name]['order']] \
+        keys = [o.replace('i', 'current').replace('v', 'voltage') for o in self.prop['order']] \
             + ['time', 'temperature']
         for i, key in enumerate(keys):
             self.data[key] = Q(df[i].to_numpy(), DEFAULT_UNITS[key])
@@ -124,22 +130,54 @@ class DataHandler:
 
         return conductance
 
-    def get_temperature(self):
-        self.temperature = get_mean_std(self.data['temperature'])
-        return self.temperature
+    def get_resistance(self, **kwargs):
+        return 1 / self.get_conductance(**kwargs)
 
-    def get(self, names, quantities, qkwargs=None):
-        res = [[] * self.qd[q] for q in quantities]
-        if qkwargs is None:
-            qkwargs = [{} for q in quantities]
-        for name in names:
-            for i, q in enumerate(quantities):
-                self.load_data(name)
-                res[i] = np.append(res[i], getattr(self, f'get_{q}')(*qkwargs[i]))
+    def get_temperature(self):
+        return get_mean_std(self.data['temperature'])
+
+    def get_length(self):
+        chip_name = self.name.split('_')[0]
+        if chip_name not in self.chips:
+            self.chips[chip_name] = Chip(os.path.join(self.chips_dir, chip_name + '.json'))
+        return self.chips[chip_name].get_distance(self.prop['pair'])
+
+    def process(self, names, instruction_dict, per_data_args={}):
+        res = [[] for key in instruction_dict]
+        for key in instruction_dict:
+            if key not in per_data_args:
+                per_data_args[key] = {}
+        for i, name in enumerate(names):
+            self.load(name)
+            for j, key in enumerate(instruction_dict):
+                if i == 0:
+                    if key.startswith('get_'):
+                        res[j] *= DEFAULT_UNITS[key.split('get_')[1]]
+                res0 = getattr(self, key)(**per_data_args[key], **instruction_dict[key])
+                res[j] = np.append(res[j], res0)
         return res
 
+    def plot(self, ax, mode='i/v', correct_offset=False, x_window=None, y_window=None, label=r'prop[temperature]',
+             color=None, markersize=5):
+        xkey, ykey = [
+            c.lower().replace('i', 'current').replace('v', 'voltage').replace('t', 'time') for c in mode.split('/')
+        ]
+        x = self.data[xkey]
+        y = self.data[ykey]
 
-class ChipParameters():
+        # correct data
+        if correct_offset:
+            y -= np.mean(y)
+        cond = np.ones(x.shape)
+        if x_window is not None:
+            cond *= is_between(x, x_window)
+        if y_window is not None:
+            cond *= is_between(y, y_window)
+        ax.scatter(x, y, label=label, c=color, s=markersize, edgecolors=None)
+        return ax
+
+
+class Chip():
     """Define chip parameters."""
 
     def __init__(self, config=None):

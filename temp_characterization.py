@@ -8,6 +8,8 @@ Analize temperature dependence.
 import os
 import numpy as np
 from matplotlib import pyplot as plt
+
+from analysis import ur
 import analysis as a
 
 
@@ -18,29 +20,32 @@ def temp_dependence(names):
     """Main analysis routine.
     names: list
     """
-    global data_dir, res_dir, props
+    global dh
+    bias_window = [-0.5, 0.5] * ur.V
 
+    temperature, conductance = dh.process(names, {
+            'get_temperature': {},
+            'get_conductance': {
+                'bias_window': bias_window,
+                'only_return': True,
+            }
+        }
+    )
     # compute temperature and conductance
-    conductance = [] * a.ur.S
-    temperature = [] * a.ur.K
-    for name in names:
-        path = os.path.join(data_dir, name + '.xlsx')
-        data = a.load_data(path, order=props[name]['order'])
-
-        temperature0 = a.get_mean_std(data['temperature'])
-        if temperature0 > 40 * a.ur.K:
-            bias_window = [-0.5, 0.5] * a.ur.V
-        else:
-            bias_window = [-1.5, 1.5] * a.ur.V
-        conductance0 = a.get_conductance(data, bias_window=bias_window, only_return=True)
-        conductance = np.append(conductance, conductance0)
-        temperature = np.append(temperature, temperature0)
+    # conductance = [] * ur.S
+    # temperature = [] * ur.K
+    # for name in names:
+    #     dh.load(name)
+    #     temperature0 = dh.get_temperature()
+    #     conductance0 = dh.get_conductance(bias_window=bias_window, only_return=True)
+    #     conductance = np.append(conductance, conductance0)
+    #     temperature = np.append(temperature, temperature0)
 
     # fit
-    temp_thresh = 1 / (a.ur.k_B * 0.2 * a.ur['meV^-1'])
-    cond = a.is_between(temperature, [temp_thresh, 350 * a.ur.K])
+    temp_thresh = 50 * ur.K
+    cond = a.is_between(temperature, [temp_thresh, 350 * ur.K])
     y = conductance
-    x = (1 / (a.ur.k_B * temperature)).to('meV^-1')
+    x = (1 / (ur.k_B * temperature)).to('meV^-1')
     coeffs, model = a.fit_exponential(x[cond], y[cond], ignore_err=True, debug=True)
     act_energy = - coeffs[0]
     print("act_energy:", act_energy)
@@ -59,7 +64,7 @@ def temp_dependence(names):
     plt.close()
 
 
-def plot_ivs(names, correct_offset=True, voltage_window=[-24, 24]*a.ur.V):
+def plot_ivs(names, correct_offset=True, voltage_window=[-24, 24]*ur.V):
     global data_dir, res_dir, props
 
     for name in names:
@@ -89,12 +94,12 @@ def plot_ivs(names, correct_offset=True, voltage_window=[-24, 24]*a.ur.V):
 
 
 def capacitance_study(names):
-    bias_window = [-1.5, 1.5] * a.ur.V
+    bias_window = [-1.5, 1.5] * ur.V
     rel_time_windows = [[0.75, 1], [0.25, 0.75]]
-    conductance = [] * a.ur.S
-    frequency = [] * a.ur.hertz
-    temperature = [] * a.ur.K
-    capacitance = [] * a.ur.pF
+    conductance = [] * ur.S
+    frequency = [] * ur.hertz
+    temperature = [] * ur.K
+    capacitance = [] * ur.pF
 
     for name in names:
         print(name)
@@ -104,8 +109,8 @@ def capacitance_study(names):
             temperature,
             a.get_mean_std(data['temperature'])
         )
-        conductance0 = [] * a.ur.S
-        offset = [] * a.ur.A
+        conductance0 = [] * ur.S
+        offset = [] * ur.A
 
         # prepare data
         bias_cond = a.is_between(data['voltage'], bias_window)
@@ -148,121 +153,92 @@ if __name__ == "__main__":
     pair = "P2-P4"
     data_dir = os.path.join('data', chip)
     res_dir = os.path.join('results', EXPERIMENT, chip)
-
     os.makedirs(res_dir, exist_ok=True)
-    cp = a.ChipParameters(os.path.join("chips", chip + ".json"))
+
+    cp = a.Chip(os.path.join("chips", chip + ".json"))
     length = cp.get_distance(pair)
     print(f"Analyzing {chip} {pair} of length {a.nominal_values(length).to_compact()}.")
 
-    # do = []
-    # do.append('temp_dependence')
-    # do.append('plot_ivs')
-    # do.append('capacitance_study')
-
     dh = a.DataHandler(data_dir)
-    names = [
-        'SOC3_15',
-        'SOC3_16',
-        'SOC3_17',
-        'SOC3_18',
-        'SOC3_19',
-        'SOC3_20',
-        'SOC3_21',
-        'SOC3_22',
-        'SOC3_23',
-        'SOC3_24',
-        'SOC3_25',
-        'SOC3_26',
-        'SOC3_27',
-        'SOC3_28',
-        'SOC3_29',
-        'SOC3_30',
-        'SOC3_31',
-        'SOC3_32',
-    ]
 
-    temperature, conductance = dh.get(
-        names,
-        ('temperature', 'conductance'),
-    )
-    print("temperature:", temperature)
-    print("conductance:", conductance)
+    do = []
+    do.append('temp_dependence')
 
-    # if 'temp_dependence' in do:
-    #     names = [
-    #         'SOC3_15',
-    #         'SOC3_16',
-    #         'SOC3_17',
-    #         'SOC3_18',
-    #         'SOC3_19',
-    #         'SOC3_20',
-    #         'SOC3_21',
-    #         'SOC3_22',
-    #         'SOC3_23',
-    #         'SOC3_24',
-    #         'SOC3_25',
-    #         'SOC3_26',
-    #         'SOC3_27',
-    #         'SOC3_28',
-    #         'SOC3_29',
-    #         'SOC3_30',
-    #         'SOC3_31',
-    #         'SOC3_32',
-    #         'SOC3_49',
-    #         'SOC3_50',
-    #         'SOC3_51',
-    #         'SOC3_52',
-    #         'SOC3_53',
-    #         'SOC3_54',
-    #         'SOC3_55',
-    #         'SOC3_56',
-    #         'SOC3_57',
-    #         'SOC3_58',
-    #         'SOC3_59',
-    #         'SOC3_60',
-    #         'SOC3_61',
-    #         'SOC3_62',
-    #         'SOC3_63',
-    #         'SOC3_64',
-    #         'SOC3_65',
-    #         'SOC3_66',
-    #         'SOC3_67',
-    #         'SOC3_68',
-    #         'SOC3_69',
-    #         'SOC3_70',
-    #         'SOC3_71',
-    #         'SOC3_72',
-    #         'SOC3_73',
-    #         'SOC3_74',
-    #         'SOC3_75',
-    #         'SOC3_76',
-    #         'SOC3_77',
-    #         'SOC3_78',
-    #         'SOC3_79',
-    #         'SOC3_80',
-    #         'SOC3_81',
-    #         'SOC3_82',
-    #         'SOC3_83',
-    #         'SOC3_84',
-    #         'SOC3_85',
-    #         'SOC3_86',
-    #         'SOC3_87',
-    #         'SOC3_88',
-    #         'SOC3_89',
-    #         'SOC3_90',
-    #     ]
-    #     temp_dependence(names)
+    if 'temp_dependence' in do:
+        names = [
+            'SOC3_15',
+            'SOC3_16',
+            'SOC3_17',
+            'SOC3_18',
+            'SOC3_19',
+            'SOC3_20',
+            'SOC3_21',
+            'SOC3_22',
+            'SOC3_23',
+            'SOC3_24',
+            'SOC3_25',
+            'SOC3_26',
+            'SOC3_27',
+            'SOC3_28',
+            'SOC3_29',
+            'SOC3_30',
+            'SOC3_31',
+            'SOC3_32',
+            'SOC3_49',
+            'SOC3_50',
+            'SOC3_51',
+            'SOC3_52',
+            'SOC3_53',
+            'SOC3_54',
+            'SOC3_55',
+            'SOC3_56',
+            'SOC3_57',
+            'SOC3_58',
+            'SOC3_59',
+            'SOC3_60',
+            'SOC3_61',
+            'SOC3_62',
+            'SOC3_63',
+            'SOC3_64',
+            'SOC3_65',
+            'SOC3_66',
+            'SOC3_67',
+            'SOC3_68',
+            'SOC3_69',
+            'SOC3_70',
+            'SOC3_71',
+            'SOC3_72',
+            'SOC3_73',
+            'SOC3_74',
+            'SOC3_75',
+            'SOC3_76',
+            'SOC3_77',
+            'SOC3_78',
+            'SOC3_79',
+            'SOC3_80',
+            'SOC3_81',
+            'SOC3_82',
+            'SOC3_83',
+            'SOC3_84',
+            'SOC3_85',
+            'SOC3_86',
+            'SOC3_87',
+            'SOC3_88',
+            'SOC3_89',
+            'SOC3_90',
+        ]
+        temp_dependence(names)
 
-    # if 'plot_ivs' in do:
-    #     names = [f'SOC3_{i}' for i in range(90, 91)]
-    #     plot_ivs(names)
+    if 'plot_ivs' in do:
+        names = [f'SOC3_{i}' for i in range(90, 91)]
+        plot_ivs(names)
 
-    # if 'capacitance_study' in do:
-    #     names = [
-    #         'SOC3_44',
-    #         'SOC3_45',
-    #         'SOC3_46',
-    #         # 'SOC3_47',
-    #         'SOC3_49',
-    #     ]
-    #     capacitance_study(names)
+    if 'capacitance_study' in do:
+        names = [
+            'SOC3_44',
+            'SOC3_45',
+            'SOC3_46',
+            # 'SOC3_47',
+            'SOC3_49',
+        ]
+        capacitance_study(names)
