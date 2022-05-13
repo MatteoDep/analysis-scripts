@@ -8,7 +8,6 @@ API for analysing data.
 import json
 import os
 import numpy as np
-from scipy.odr import Model, RealData, ODR
 import pandas as pd
 from matplotlib import pyplot as plt
 import pint
@@ -354,7 +353,7 @@ def fit_exponential(x, y, offset=None, ignore_err=False, debug=False):
 
 
 def fit_linear(x, y, ignore_err=False, already_separated=False, debug=False):
-    """Calculate 1D linear fit (y = a*x + b)."""
+    """Calculate 1D linear fit (y = p[0] + p[1]*x)."""
     if already_separated:
         x_, dx, ux = x
         y_, dy, uy = y
@@ -364,52 +363,30 @@ def fit_linear(x, y, ignore_err=False, already_separated=False, debug=False):
     if ignore_err:
         dx = None
         dy = None
-    errs = None
     if dy is not None:
-        errs = dy
         dy[dy == 0] = np.nan
     if dx is not None:
-        errs = np.sqrt(errs**2 + dx**2)
         dx[dx == 0] = np.nan
 
-    data = RealData(x_, y_, sy=errs)
+    p, pcov = np.polyfit(x_, y_, 1, w=dy, cov=True)
 
-    m = (y_[-1] - y_[0]) / (x_[-1] - x_[0])
-    q = y_[0] - m * x_[0]
+    if dx is not None and dy is not None:
+        dy_prop = np.sqrt(dy**2 + (p[1]*dx)**2)
+        p, pcov = np.polyfit(x_, y_, 1, w=dy_prop, cov=True)
 
-    def model_fcn(b, x):
-        return b[0] * x + b[1]
-
-    odr_model = Model(model_fcn)
-    odr = ODR(data, odr_model, beta0=[m, q])
-    res = odr.run()
-
-    def are_res_dummy(res):
-        return res.beta[0] == m or res.beta[1] == q
-
-    if not ignore_err and are_res_dummy(res):
-        print('Fit using errors failed... doing fit without errors.')
-        ignore_err = True
-        data = RealData(x_, y_)
-        odr = ODR(data, odr_model, beta0=[m, q])
-        res = odr.run()
-    if ignore_err and are_res_dummy(res):
-        raise RuntimeError("Fit Failed!")
+    dp = np.sqrt(np.diag(pcov))
 
     # build result as physical quantities
     units = [uy/ux, uy]
-    coeffs = []
-    for i in range(len(res.beta)):
-        coeffs.append((res.beta[i] * units[i]).plus_minus(res.sd_beta[i]))
+    coeffs = [(p[i] * units[i]).plus_minus(dp[i]) for i in range(2)]
 
     if debug:
-        res.pprint()
         plt.figure()
         plt.errorbar(x_, y_, xerr=dx, yerr=dy, fmt='o')
-        plt.plot(x_, model_fcn(res.beta, x_))
+        plt.plot(x_, p[0]*x_ + p[1])
         plt.show()
 
-    return coeffs, lambda x, b=res.beta: model_fcn(b, x)
+    return coeffs, lambda x, p=p: p[0]*x + p[1]
 
 
 # OTHER HELP FUNCTIONS

@@ -41,7 +41,7 @@ def temp_dependence(names):
         temp_thresh = 50 * ur.K
         cond = a.is_between(temperature, [temp_thresh, 350 * ur.K])
         if cond.any():
-            coeffs, model = a.fit_exponential(x[cond], y[cond], ignore_err=True, debug=True)
+            coeffs, model = a.fit_exponential(x[cond], y[cond], debug=True)
             act_energy = - coeffs[0]
             print("Activation energy ({}): {}".format(bias, act_energy))
 

@@ -100,8 +100,8 @@ if __name__ == "__main__":
     # chip = "SLC7"
     # chip = "SKC7"
     # chip = "SIC1x"
-    # chip = "SPC2"
-    chip = "SPC3"
+    chip = "SPC2"
+    # chip = "SPC3"
     data_dir = os.path.join('data', chip)
     res_dir = os.path.join('results', EXPERIMENT, chip)
     os.makedirs(res_dir, exist_ok=True)
