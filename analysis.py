@@ -98,26 +98,27 @@ class DataHandler:
             self.data[key] = Q(df[i].to_numpy(), DEFAULT_UNITS[key])
         return self.data
 
-    def get_conductance(self, method="auto", bias_window=None, only_return=False, debug=False):
+    def get_conductance(self, method="auto", bias_win=None, time_win=None, debug=False):
         """Calculate conductance."""
         if method == "auto":
-            if bias_window is None:
+            if bias_win is None:
                 method = "fit"
             else:
-                if np.multiply(*bias_window) < 0:
+                if np.multiply(*bias_win) < 0:
                     method = "fit"
                 else:
                     method = "average"
 
         # prepare data
         cond = self.data['voltage'] != 0
-        if only_return:
-            time_window = np.array([0.25, 0.75]) * self.data['time'][-1]
-            cond *= is_between(self.data['time'], time_window)
-        if bias_window is not None:
-            if not hasattr(bias_window, 'units'):
-                bias_window = bias_window * DEFAULT_UNITS['voltage']
-            cond *= is_between(self.data['voltage'], bias_window)
+        if time_win is not None:
+            if not hasattr(time_win, 'units'):
+                time_win = np.array(time_win) * self.data['time'][-1]
+            cond *= is_between(self.data['time'], time_win)
+        if bias_win is not None:
+            if not hasattr(bias_win, 'units'):
+                bias_win = bias_win * DEFAULT_UNITS['voltage']
+            cond *= is_between(self.data['voltage'], bias_win)
 
         # calculate conductance
         if method == "fit":
@@ -142,6 +143,34 @@ class DataHandler:
             self.chips[chip_name] = Chip(os.path.join(self.chips_dir, chip_name + '.json'))
         return self.chips[chip_name].get_distance(self.prop['pair'])
 
+    def plot(self, ax, mode='i/v', correct_offset=False, x_win=None, y_win=None, label=r'{prop[temperature]}',
+             color=None, markersize=5, set_xy_label=True):
+        ykey, xkey = [
+            c.replace('v', 'voltage').replace('i', 'current') if c != 't' else 'time' for c in mode.lower().split('/')
+        ]
+        print("xkey:", xkey)
+        print("ykey:", ykey)
+        x = self.data[xkey]
+        y = self.data[ykey]
+        label = label.replace('{', '{0.').format(self)
+
+        # correct data
+        if correct_offset:
+            y -= np.mean(y)
+        cond = np.ones(x.shape)
+        if x_win is not None:
+            cond *= is_between(x, x_win)
+        if y_win is not None:
+            cond *= is_between(y, y_win)
+        ax.scatter(x, y, label=label, c=color, s=markersize, edgecolors=None)
+        if set_xy_label:
+            ysym, xsym = [
+                c.upper() if c in 'iv' else c for c in mode.split('/')
+            ]
+            ax.set_xlabel(f"${xsym}$ [${x.units}$]")
+            ax.set_ylabel(f"${ysym}$ [${y.units}$]")
+        return ax
+
     def process(self, names, instruction_dict, per_data_args={}):
         res = [[] for key in instruction_dict]
         for key in instruction_dict:
@@ -156,25 +185,6 @@ class DataHandler:
                 res0 = getattr(self, key)(**per_data_args[key], **instruction_dict[key])
                 res[j] = np.append(res[j], res0)
         return res
-
-    def plot(self, ax, mode='i/v', correct_offset=False, x_window=None, y_window=None, label=r'prop[temperature]',
-             color=None, markersize=5):
-        xkey, ykey = [
-            c.lower().replace('i', 'current').replace('v', 'voltage').replace('t', 'time') for c in mode.split('/')
-        ]
-        x = self.data[xkey]
-        y = self.data[ykey]
-
-        # correct data
-        if correct_offset:
-            y -= np.mean(y)
-        cond = np.ones(x.shape)
-        if x_window is not None:
-            cond *= is_between(x, x_window)
-        if y_window is not None:
-            cond *= is_between(y, y_window)
-        ax.scatter(x, y, label=label, c=color, s=markersize, edgecolors=None)
-        return ax
 
 
 class Chip():
@@ -231,24 +241,25 @@ class Chip():
         """Get distance between 2 contacts."""
         if isinstance(segment, str):
             segment = self.pair_to_segment(segment)
-        pad_high = np.amin(segment)
-        pad_low = np.amax(segment)
+        pad1 = np.amin(segment)
+        pad2 = np.amax(segment)
 
         count = 0
-        distance = 0
-        measure = False
+        x = 0
+        x1 = None
+        x2 = None
         for item in self.layout:
             if item['type'] == "contact":
                 count += 1
             # do not change the order of the if statements below
-            if count == pad_low:
+            if count == pad2:
+                x2 = ((x + item['width'] / 2) * ur.m).plus_minus(item['width'] / np.sqrt(12))
                 break
-            if measure:
-                distance += item['width']
-            if count == pad_high:
-                measure = True
+            if count == pad1:
+                x1 = ((x + item['width'] / 2) * ur.m).plus_minus(item['width'] / np.sqrt(12))
+            x += item['width']
 
-        return (distance * ur.m).plus_minus(self.sigma)
+        return x2 - x1
 
     @staticmethod
     def segment_to_pair(segment):
@@ -265,9 +276,7 @@ def measurement_is_equal(x, y):
     """Compare 2 independent measurements."""
     x_, dx, _ = separate_measurement(x)
     y_, dy, _ = separate_measurement(y)
-    if x_ == y_ and dx == dy:
-        return True
-    return False
+    return (x_ == y_) * (dx == dy)
 
 
 def measurement_is_present(x, arr):
@@ -355,11 +364,15 @@ def fit_linear(x, y, ignore_err=False, already_separated=False, debug=False):
     if ignore_err:
         dx = None
         dy = None
-    if dx is not None:
-        dx[dx == 0] = np.nan
+    errs = None
     if dy is not None:
+        errs = dy
         dy[dy == 0] = np.nan
-    data = RealData(x_, y_, sx=dx, sy=dy)
+    if dx is not None:
+        errs = np.sqrt(errs**2 + dx**2)
+        dx[dx == 0] = np.nan
+
+    data = RealData(x_, y_, sy=errs)
 
     m = (y_[-1] - y_[0]) / (x_[-1] - x_[0])
     q = y_[0] - m * x_[0]
@@ -411,5 +424,5 @@ def include_origin(ax, axis='xy'):
     return ax
 
 
-def is_between(x, window):
-    return np.logical_and(x > window[0], x < window[1])
+def is_between(x, win):
+    return np.logical_and(x > win[0], x < win[1])

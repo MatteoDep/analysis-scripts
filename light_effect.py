@@ -15,16 +15,16 @@ import analysis as a
 EXPERIMENT = 'light_effect'
 
 
-def get_tau(self, time_window, const_estimate_time=5*a.ur.s):
+def get_tau(data, time_window, const_estimate_time=5*a.ur.s):
     """Calculate time constant tau."""
-    t = self.data['time']
-    i = self.data['current']
+    t = data['time']
+    i = data['current']
     if not hasattr(time_window, 'units'):
         time_window *= a.DEFAULT_UNITS['time']
     t_start = time_window[0]
     t_end = time_window[1]
-    i_start = np.mean(self.data['current'][a.is_between(self.data['time'], [t_start - const_estimate_time, t_start])])
-    i_end = np.mean(self.data['current'][a.is_between(self.data['time'], [t_end - const_estimate_time, t_end])])
+    i_start = np.mean(data['current'][a.is_between(data['time'], [t_start - const_estimate_time, t_start])])
+    i_end = np.mean(data['current'][a.is_between(data['time'], [t_end - const_estimate_time, t_end])])
     amp = i_start - i_end
     offset = i_end
 
