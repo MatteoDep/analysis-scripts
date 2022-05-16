@@ -1,0 +1,43 @@
+{
+    "name": "SPC3",
+    "sigma": 1e-7,
+    "layout": [
+        { "type": "contact", "width": 10e-6 },
+        { "type": "spacing", "width": 22.5e-6 },
+        { "type": "contact", "width": 3e-6 },
+        { "type": "spacing", "width": 9e-6 },
+        { "type": "contact", "width": 3e-6 },
+        { "type": "spacing", "width": 22.5e-6 },
+        { "type": "contact", "width": 10e-6 },
+
+        { "type": "spacing", "width": 13.5e-6 },
+        { "type": "contact", "width": 3e-6 },
+        { "type": "spacing", "width": 4e-6 },
+        { "type": "contact", "width": 1.5e-6 },
+        { "type": "spacing", "width": 2e-6 },
+        { "type": "contact", "width": 1.5e-6 },
+        { "type": "spacing", "width": 2e-6 },
+        { "type": "contact", "width": 1.5e-6 },
+        { "type": "spacing", "width": 2e-6 },
+        { "type": "contact", "width": 1.5e-6 },
+        { "type": "spacing", "width": 2e-6 },
+        { "type": "contact", "width": 1.5e-6 },
+        { "type": "spacing", "width": 2e-6 },
+        { "type": "contact", "width": 1.5e-6 },
+        { "type": "spacing", "width": 2e-6 },
+        { "type": "contact", "width": 1.5e-6 },
+        { "type": "spacing", "width": 2e-6 },
+        { "type": "contact", "width": 1.5e-6 },
+        { "type": "spacing", "width": 4e-6 },
+        { "type": "contact", "width": 3e-6 },
+        { "type": "spacing", "width": 13.5e-6 },
+
+        { "type": "contact", "width": 10e-6 },
+        { "type": "spacing", "width": 16.5e-6 },
+        { "type": "contact", "width": 3e-6 },
+        { "type": "spacing", "width": 9e-6 },
+        { "type": "contact", "width": 3e-6 },
+        { "type": "spacing", "width": 22.5e-6 },
+        { "type": "contact", "width": 10e-6 }
+    ]
+}

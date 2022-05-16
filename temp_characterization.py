@@ -37,24 +37,25 @@ def temp_dependence(names):
                 conductance0 = np.nan
             conductance[i] = np.append(conductance[i], conductance0)
 
-    temp_thresh = 100 * ur.K
-    cond = a.is_between(temperature, [temp_thresh, 350 * ur.K])
+    temp_win = [100, 350] * ur.K
+    cond = a.is_between(temperature, temp_win)
     x = 100 / temperature
     x_, dx, ux = a.separate_measurement(x)
     fig, ax = plt.subplots(figsize=(12, 9))
     for i, bias in enumerate(biases):
         y = conductance[i]
         y_, dy, uy = a.separate_measurement(y)
-        ax.errorbar(x_, y_, xerr=dx, yerr=dy, marker='o', linewidth=0, c=f'C{i}', label=fr'$V_b = {bias}$')
+        ax.errorbar(x_, y_, xerr=dx, yerr=dy, marker='o', linewidth=0, label=fr'$V_b = {bias}$')
         condtot = cond * (np.isnan(y_) == 0)
         plt.legend()
-        if condtot.any():
+        if condtot.any() and i == 0:
             coeffs, model = a.fit_exponential(x[condtot], y[condtot], debug=False)
             act_energy = (- coeffs[0] * 100 * ur.k_B).to('meV')
-            print("Activation energy ({}): {}".format(bias, act_energy))
-            ax.plot(x_[cond], model(x_[cond]), c=f'C{i}', label=fr"$U_A = {act_energy}$")
+            print("Activation energy: {}".format(bias))
+            x1 = 100 / temp_win.magnitude
+            ax.plot(x1, model(x1), c='r', label=fr"$U_A = {act_energy}$")
     ax.set_title("Conductance")
-    ax.set_xlabel(fr"$\frac{{1}}{{k_BT}}$ [${ux:~L}$]")
+    ax.set_xlabel(fr"$\frac{{100}}{{T}}$ [${ux:~L}$]")
     ax.set_ylabel(fr"$G$ [${uy:~L}$]")
     ax.set_yscale('log')
     res_image = os.path.join(res_dir, "temperature_dep.png")
@@ -68,7 +69,7 @@ def plot_ivs(names):
     for name in names:
         fig, ax = plt.subplots()
         dh.load(name)
-        dh.plot(ax)
+        ax = dh.plot(ax)
         ax.set_title(f"IV ({dh.prop['temperature']})")
         res_image = os.path.join(
             res_dir,
