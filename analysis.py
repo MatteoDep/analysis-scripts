@@ -112,11 +112,13 @@ class DataHandler:
         cond = self.data['voltage'] != 0
         if time_win is not None:
             if not hasattr(time_win, 'units'):
-                time_win = np.array(time_win) * self.data['time'][-1]
+                if not hasattr(time_win[0], 'units'):
+                    time_win = np.array(time_win) * self.data['time'][-1]
             cond *= is_between(self.data['time'], time_win)
         if bias_win is not None:
             if not hasattr(bias_win, 'units'):
-                bias_win = bias_win * DEFAULT_UNITS['voltage']
+                if not hasattr(bias_win[0], 'units'):
+                    bias_win = bias_win * self.prop['voltage']
             cond *= is_between(self.data['voltage'], bias_win)
 
         # calculate conductance
@@ -147,8 +149,6 @@ class DataHandler:
         ykey, xkey = [
             c.replace('v', 'voltage').replace('i', 'current') if c != 't' else 'time' for c in mode.lower().split('/')
         ]
-        print("xkey:", xkey)
-        print("ykey:", ykey)
         x = self.data[xkey]
         y = self.data[ykey]
         label = label.replace('{', '{0.').format(self)
@@ -326,7 +326,7 @@ def strip_units(x):
 
 def get_mean_std(x):
     """Calculate average with std."""
-    return np.mean(x).plus_minus(np.std(x))
+    return np.nanmean(x).plus_minus(np.nanstd(x))
 
 
 def fit_exponential(x, y, offset=None, ignore_err=False, debug=False):

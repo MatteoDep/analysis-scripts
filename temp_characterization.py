@@ -21,7 +21,7 @@ def temp_dependence(names):
     names: list
     """
     global dh
-    biases = np.arange(0, 5, 1) * ur.V
+    biases = np.arange(0, 10, 2) * ur.V
     delta_bias = 0.3 * ur.V
 
     temperature = [] * ur.K
@@ -30,31 +30,33 @@ def temp_dependence(names):
         dh.load(name)
         temperature = np.append(temperature, dh.get_temperature())
         for i, bias in enumerate(biases):
-            bias_win = [b.magnitude for b in [bias - delta_bias, bias + delta_bias]] * ur.V
-            conductance[i] = np.append(conductance[i], dh.get_conductance(bias_win=bias_win, time_win=[0.25, 0.75]))
+            bias_win = [bias - delta_bias, bias + delta_bias]
+            if bias + delta_bias < dh.prop['voltage']:
+                conductance0 = dh.get_conductance(bias_win=bias_win, time_win=[0.25, 0.75])
+            else:
+                conductance0 = np.nan
+            conductance[i] = np.append(conductance[i], conductance0)
 
-    fig, ax = plt.subplots()
+    temp_thresh = 100 * ur.K
+    cond = a.is_between(temperature, [temp_thresh, 350 * ur.K])
+    x = 100 / temperature
+    x_, dx, ux = a.separate_measurement(x)
+    fig, ax = plt.subplots(figsize=(12, 9))
     for i, bias in enumerate(biases):
-        # fit
-        y = conductance
-        x = (1 / (ur.k_B * temperature)).to('meV^-1')
-        temp_thresh = 50 * ur.K
-        cond = a.is_between(temperature, [temp_thresh, 350 * ur.K])
-        if cond.any():
-            coeffs, model = a.fit_exponential(x[cond], y[cond], debug=True)
-            act_energy = - coeffs[0]
+        y = conductance[i]
+        y_, dy, uy = a.separate_measurement(y)
+        ax.errorbar(x_, y_, xerr=dx, yerr=dy, marker='o', linewidth=0, c=f'C{i}', label=fr'$V_b = {bias}$')
+        condtot = cond * (np.isnan(y_) == 0)
+        plt.legend()
+        if condtot.any():
+            coeffs, model = a.fit_exponential(x[condtot], y[condtot], debug=False)
+            act_energy = (- coeffs[0] * 100 * ur.k_B).to('meV')
             print("Activation energy ({}): {}".format(bias, act_energy))
-
-        x_, dx, ux = a.separate_measurement(x)
-        y_, dy, uy = a.separate_measurement(conductance[i])
-        ax.errorbar(x_, y_, xerr=dx, yerr=dy, marker='o', linewidth=0, label=fr'$V_b = {bias}$')
-        if cond.any():
-            ax.plot(x_[cond], model(x_[cond]), c='k', label=fr"$U_A = {act_energy}$")
+            ax.plot(x_[cond], model(x_[cond]), c=f'C{i}', label=fr"$U_A = {act_energy}$")
     ax.set_title("Conductance")
     ax.set_xlabel(fr"$\frac{{1}}{{k_BT}}$ [${ux:~L}$]")
     ax.set_ylabel(fr"$G$ [${uy:~L}$]")
     ax.set_yscale('log')
-    plt.legend()
     res_image = os.path.join(res_dir, "temperature_dep.png")
     fig.savefig(res_image, dpi=300)
     plt.close()
@@ -133,14 +135,9 @@ def capacitance_study(names):
 if __name__ == "__main__":
     # chip = "SOC3"
     chip = "SPC2"
-    pair = "P2-P4"
     data_dir = os.path.join('data', chip)
     res_dir = os.path.join('results', EXPERIMENT, chip)
     os.makedirs(res_dir, exist_ok=True)
-
-    cp = a.Chip(os.path.join("chips", chip + ".json"))
-    length = cp.get_distance(pair)
-    print(f"Analyzing {chip} {pair} of length {a.nominal_values(length).to_compact()}.")
 
     dh = a.DataHandler(data_dir)
 
@@ -151,7 +148,7 @@ if __name__ == "__main__":
 
     if 'temp_dependence' in do:
         if chip == 'SPC2':
-            nums = np.arange(45, 55)
+            nums = np.arange(45, 74)
             names = [f"{chip}_{i}" for i in nums]
         if chip == 'SOC3':
             names = [
@@ -219,7 +216,11 @@ if __name__ == "__main__":
         temp_dependence(names)
 
     if 'plot_ivs' in do:
-        names = [f'SOC3_{i}' for i in range(90, 91)]
+        if chip == 'SPC2':
+            nums = np.arange(45, 74)
+            names = [f"{chip}_{i}" for i in nums]
+        if chip == 'SOC3':
+            names = [f'SOC3_{i}' for i in range(90, 91)]
         plot_ivs(names)
 
     if 'capacitance_study' in do:
