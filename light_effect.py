@@ -44,7 +44,7 @@ def get_tau(data, time_window, const_estimate_time=5*a.ur.s):
     return tau
 
 
-def temp_dependence(names, props, hb_window=[22, 24]*a.ur.V, lb_window=[-1.5, 1.5]*a.ur.V):
+def temp_dependence(names, hb_window=[22, 24]*a.ur.V, lb_window=[-1.5, 1.5]*a.ur.V):
     """Main analysis routine.
     names: dictionary like {'lb':{ls1: [name1, name2, ...], ls2: [...], ...}, 'hb': {...}}.
     """
@@ -183,7 +183,7 @@ def time_constant(names, switches):
 
 def color_dependence(names, time_window):
     """Plot the color_dependence."""
-    global data_dir, res_dir, props
+    global dh
     labels = ['blue', 'red', 'green', 'white', 'dark']
     colors = ['blue', 'red', 'green', 'yellow', 'black']
 
@@ -195,7 +195,7 @@ def color_dependence(names, time_window):
             dh.load(name)
             dh.plot(ax, mode='i/t', color=colors[i], label=labels[i], x_win=time_window[key])
         ax.set_title("Color Dependence ({}, {}, {})".format(
-            key.replace('_', ' '), props[name]['voltage'], props[name]['temperature']
+            key.replace('_', ' '), dh.prop['voltage'], dh.prop['temperature']
         ))
         plt.legend()
         res_image = os.path.join(res_dir, f"{key}-color_dep.png")
@@ -275,13 +275,13 @@ def plot_switches(names, switches):
                     c = 'green'
                 ax.axvline(x=switch, c=c, label=d)
             ax = dh.plot(ax, mode='i/t')
-            ax.set_title(f"Switch ({key.replace('_', ' ')}, {props[name]['voltage']}, {props[name]['temperature']})")
+            ax.set_title(f"Switch ({key.replace('_', ' ')}, {dh.prop['voltage']}, {dh.prop['temperature']})")
             plt.legend()
             res_image = os.path.join(
                 res_dir,
                 "{3}-switch{2}_{0.magnitude}{0.units}_{1.magnitude}{1.units}".format(
-                    props[name]['voltage'],
-                    props[name]['temperature'],
+                    dh.prop['voltage'],
+                    dh.prop['temperature'],
                     f"_{d}" if len(switches[key][i]) == 1 else "",
                     key
                 )
@@ -299,13 +299,13 @@ def plot_ivs(names, correct_offset=True, voltage_win=[-24, 24]*a.ur.V):
             fig, ax = plt.subplots()
             for name, label in zip(names_, labels):
                 dh.load(name)
-                ax = dh.plot(ax, correct_offset=True, voltage_win=voltage_win)
-            ax.set_title(f"IV ({key.replace('_', ' ')}, {props[name]['temperature']})")
+                ax = dh.plot(ax, correct_offset=True, x_win=voltage_win)
+            ax.set_title(f"IV ({key.replace('_', ' ')}, {dh.prop['temperature']})")
             plt.legend()
             res_image = os.path.join(
                 res_dir,
                 "{1}-iv_{0.magnitude}{0.units}".format(
-                    props[name]['temperature'],
+                    dh.prop['temperature'],
                     key
                 )
             )
@@ -506,7 +506,7 @@ if __name__ == "__main__":
                 },
             },
         }
-        temp_dependence(names, props)
+        temp_dependence(names)
 
     if 'time_constant' in do:
         names = {
