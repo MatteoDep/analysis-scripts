@@ -16,7 +16,7 @@ import analysis as a
 EXPERIMENT = 'temp_characterization'
 
 
-def temp_dependence(names):
+def temp_dependence(names, prefix=""):
     """Main analysis routine.
     names: list
     """
@@ -42,23 +42,24 @@ def temp_dependence(names):
     x = 100 / temperature
     x_, dx, ux = a.separate_measurement(x)
     fig, ax = plt.subplots(figsize=(12, 9))
+    cols = plt.cm.viridis(biases.magnitude / np.max(bias.magnitude))
     for i, bias in enumerate(biases):
         y = conductance[i]
         y_, dy, uy = a.separate_measurement(y)
-        ax.errorbar(x_, y_, xerr=dx, yerr=dy, marker='o', linewidth=0, label=fr'$V_b = {bias}$')
+        ax.errorbar(x_, y_, xerr=dx, yerr=dy, marker='o', c=cols[i], linewidth=0, label=fr'$V_b = {bias}$')
         condtot = cond * (np.isnan(y_) == 0)
         plt.legend()
         if condtot.any() and i == 0:
             coeffs, model = a.fit_exponential(x[condtot], y[condtot], debug=False)
             act_energy = (- coeffs[0] * 100 * ur.k_B).to('meV')
-            print("Activation energy: {}".format(bias))
+            print("Activation energy: {}".format(act_energy))
             x1 = 100 / temp_win.magnitude
             ax.plot(x1, model(x1), c='r', label=fr"$U_A = {act_energy}$")
     ax.set_title("Conductance")
     ax.set_xlabel(fr"$\frac{{100}}{{T}}$ [${ux:~L}$]")
     ax.set_ylabel(fr"$G$ [${uy:~L}$]")
     ax.set_yscale('log')
-    res_image = os.path.join(res_dir, "temperature_dep.png")
+    res_image = os.path.join(res_dir, f"{prefix}temperature_dep.png")
     fig.savefig(res_image, dpi=300)
     plt.close()
 
@@ -67,15 +68,22 @@ def plot_ivs(names):
     global dh
 
     for name in names:
-        fig, ax = plt.subplots()
         dh.load(name)
+        if dh.prop['temperature'] < 20 * ur.K:
+            fig, (ax, ax1) = plt.subplots(1, 2)
+            ax1 = dh.plot(ax1)
+            ax1.set_xlim([-2, 2])
+            ax1.set_ylim([-5e-13, 5e-13])
+        else:
+            fig, ax = plt.subplots()
         ax = dh.plot(ax)
-        ax.set_title(f"IV ({dh.prop['temperature']})")
+        fig.suptitle(f"IV ({dh.prop['temperature']})")
         res_image = os.path.join(
             res_dir,
-            "iv_{0.magnitude}{0.units}_{1}.png".format(
+            "{1}_{2}_iv_{0.magnitude}{0.units}.png".format(
                 dh.prop['temperature'],
-                name
+                dh.chip_name,
+                dh.prop['pair']
             )
         )
         fig.savefig(res_image, dpi=300)
@@ -136,6 +144,9 @@ def capacitance_study(names):
 if __name__ == "__main__":
     # chip = "SOC3"
     chip = "SPC2"
+    # pair = "P2-P4"
+    pair = "P17-P18"
+    prefix = f"{chip}_{pair}_"
     data_dir = os.path.join('data', chip)
     res_dir = os.path.join('results', EXPERIMENT, chip)
     os.makedirs(res_dir, exist_ok=True)
@@ -149,8 +160,12 @@ if __name__ == "__main__":
 
     if 'temp_dependence' in do:
         if chip == 'SPC2':
-            nums = np.arange(45, 74)
-            names = [f"{chip}_{i}" for i in nums]
+            if pair == 'P2-P4':
+                nums = np.arange(45, 74)
+                names = [f"{chip}_{i}" for i in nums]
+            elif pair == 'P17-P18':
+                nums = np.arange(78, 94)
+                names = [f"{chip}_{i}" for i in nums]
         if chip == 'SOC3':
             names = [
                 'SOC3_15',
@@ -214,7 +229,7 @@ if __name__ == "__main__":
                 'SOC3_89',
                 'SOC3_90',
             ]
-        temp_dependence(names)
+        temp_dependence(names, prefix=prefix)
 
     if 'plot_ivs' in do:
         if chip == 'SPC2':

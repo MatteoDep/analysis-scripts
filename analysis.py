@@ -87,6 +87,7 @@ class DataHandler:
                 setattr(self, x, None)
         # load data
         self.name = name
+        self.chip_name = self.name.split('_')[0]
         self.prop = self.props[name]
         path = os.path.join(self.data_dir, name + '.xlsx')
         df = pd.read_excel(path, skiprows=[5, 6]).T
@@ -139,10 +140,9 @@ class DataHandler:
         return get_mean_std(self.data['temperature'])
 
     def get_length(self):
-        chip_name = self.name.split('_')[0]
-        if chip_name not in self.chips:
-            self.chips[chip_name] = Chip(os.path.join(self.chips_dir, chip_name + '.json'))
-        return self.chips[chip_name].get_distance(self.prop['pair'])
+        if self.chip_name not in self.chips:
+            self.chips[self.chip_name] = Chip(os.path.join(self.chips_dir, self.chip_name + '.json'))
+        return self.chips[self.chip_name].get_distance(self.prop['pair'])
 
     def plot(self, ax, mode='i/v', correct_offset=False, x_win=None, y_win=None, label=r'{prop[temperature]}',
              color=None, markersize=5, set_xy_label=True):
