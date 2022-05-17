@@ -1,5 +1,5 @@
 {
-    "name": "SOC3",
+    "name": "SPC2",
     "sigma": 1e-7,
     "layout": [
         { "type": "contact", "width": 10e-6 },

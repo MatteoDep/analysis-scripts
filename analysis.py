@@ -6,8 +6,8 @@ API for analysing data.
 
 
 import json
+import os
 import numpy as np
-from scipy.odr import Model, RealData, ODR
 import pandas as pd
 from matplotlib import pyplot as plt
 import pint
@@ -22,7 +22,6 @@ ur.setup_matplotlib()
 Q = ur.Quantity
 ur.default_format = "~P"
 
-MODES = {'2p', '4p'}
 NUM_FIBERS = 60
 FIBER_RADIUS = (25 * ur.nanometer).plus_minus(3)
 
@@ -32,12 +31,162 @@ DEFAULT_UNITS = {
     'current': ur.A,
     'time': ur.s,
     'temperature': ur.K,
+    'conductance': ur.S,
+    'length': ur.m,
 }
 
 
 # HANDLE DATA
 
-class ChipParameters():
+class DataHandler:
+    """
+    Loads data and builds quantities arrays.
+    """
+
+    def __init__(self, data_dir, chips_dir='chips', **props_kwargs):
+        self.data_dir = data_dir
+        self.chips_dir = chips_dir
+        self.props = self.load_properties(**props_kwargs)
+        self.chips = {}
+        pass
+
+    def load_properties(self, path=None, names=None):
+        """Load properties file."""
+        if path is None:
+            path = os.path.join(self.data_dir, 'properties.csv')
+        df = pd.read_csv(path, sep='\t', index_col=0)
+        if names is None:
+            names = df.index
+        self.props = {}
+        oldcols = ['input', 'output']
+        for name in names:
+            self.props[name] = {}
+            self.props[name]['pair'] = df.loc[name, 'pair']
+            self.props[name]['injection'] = df.loc[name, 'injection']
+            self.props[name]['temperature'] = Q(df.loc[name, 'temperature'])
+            self.props[name]['order'] = ''
+            for k in oldcols:
+                q = Q(df.loc[name, k])
+                if q.is_compatible_with(ur.V):
+                    self.props[name]['order'] += 'v'
+                    self.props[name]['voltage'] = q
+                elif q.is_compatible_with(ur.A):
+                    self.props[name]['order'] += 'i'
+                    self.props[name]['current'] = q
+                else:
+                    raise ValueError(f"Unrecognized units {q.units} of name {name}")
+        return self.props
+
+    def load(self, name):
+        """Read data from files."""
+        # reset quantities
+        resetnot = ['data_dir', 'chips_dir', 'props', 'chips']
+        attributes = [x for x in dir(self) if not callable(getattr(self, x)) and not x.startswith('__')]
+        for x in attributes:
+            if x not in resetnot:
+                setattr(self, x, None)
+        # load data
+        self.name = name
+        self.chip_name = self.name.split('_')[0]
+        self.prop = self.props[name]
+        path = os.path.join(self.data_dir, name + '.xlsx')
+        df = pd.read_excel(path, skiprows=[5, 6]).T
+        self.data = {}
+        keys = [o.replace('i', 'current').replace('v', 'voltage') for o in self.prop['order']] \
+            + ['time', 'temperature']
+        for i, key in enumerate(keys):
+            self.data[key] = Q(df[i].to_numpy(), DEFAULT_UNITS[key])
+        return self.data
+
+    def get_conductance(self, method="auto", bias_win=None, time_win=None, debug=False):
+        """Calculate conductance."""
+        if method == "auto":
+            if bias_win is None:
+                method = "fit"
+            else:
+                if np.multiply(*bias_win) < 0:
+                    method = "fit"
+                else:
+                    method = "average"
+
+        # prepare data
+        cond = self.data['voltage'] != 0
+        if time_win is not None:
+            if not hasattr(time_win, 'units'):
+                if not hasattr(time_win[0], 'units'):
+                    time_win = np.array(time_win) * self.data['time'][-1]
+            cond *= is_between(self.data['time'], time_win)
+        if bias_win is not None:
+            if not hasattr(bias_win, 'units'):
+                if not hasattr(bias_win[0], 'units'):
+                    bias_win = bias_win * self.prop['voltage']
+            cond *= is_between(self.data['voltage'], bias_win)
+
+        # calculate conductance
+        if method == "fit":
+            coeffs, model = fit_linear(self.data['voltage'][cond], self.data['current'][cond], debug=debug)
+            conductance = coeffs[0]
+        elif method == "average":
+            conductance = get_mean_std(self.data['current'][cond]/self.data['voltage'][cond])
+        else:
+            raise ValueError(f"Unrecognized method {method}.")
+
+        return conductance
+
+    def get_resistance(self, **kwargs):
+        return 1 / self.get_conductance(**kwargs)
+
+    def get_temperature(self):
+        return get_mean_std(self.data['temperature'])
+
+    def get_length(self):
+        if self.chip_name not in self.chips:
+            self.chips[self.chip_name] = Chip(os.path.join(self.chips_dir, self.chip_name + '.json'))
+        return self.chips[self.chip_name].get_distance(self.prop['pair'])
+
+    def plot(self, ax, mode='i/v', correct_offset=False, x_win=None, y_win=None, label=r'{prop[temperature]}',
+             color=None, markersize=5, set_xy_label=True):
+        ykey, xkey = [
+            c.replace('v', 'voltage').replace('i', 'current') if c != 't' else 'time' for c in mode.lower().split('/')
+        ]
+        x = self.data[xkey]
+        y = self.data[ykey]
+        label = label.replace('{', '{0.').format(self)
+
+        # correct data
+        if correct_offset:
+            y -= np.mean(y)
+        cond = np.ones(x.shape)
+        if x_win is not None:
+            cond *= is_between(x, x_win)
+        if y_win is not None:
+            cond *= is_between(y, y_win)
+        ax.scatter(x, y, label=label, c=color, s=markersize, edgecolors=None)
+        if set_xy_label:
+            ysym, xsym = [
+                c.upper() if c in 'iv' else c for c in mode.split('/')
+            ]
+            ax.set_xlabel(f"${xsym}$ [${x.units}$]")
+            ax.set_ylabel(f"${ysym}$ [${y.units}$]")
+        return ax
+
+    def process(self, names, instruction_dict, per_data_args={}):
+        res = [[] for key in instruction_dict]
+        for key in instruction_dict:
+            if key not in per_data_args:
+                per_data_args[key] = {}
+        for i, name in enumerate(names):
+            self.load(name)
+            for j, key in enumerate(instruction_dict):
+                if i == 0:
+                    if key.startswith('get_'):
+                        res[j] *= DEFAULT_UNITS[key.split('get_')[1]]
+                res0 = getattr(self, key)(**per_data_args[key], **instruction_dict[key])
+                res[j] = np.append(res[j], res0)
+        return res
+
+
+class Chip():
     """Define chip parameters."""
 
     def __init__(self, config=None):
@@ -91,24 +240,25 @@ class ChipParameters():
         """Get distance between 2 contacts."""
         if isinstance(segment, str):
             segment = self.pair_to_segment(segment)
-        pad_high = np.amin(segment)
-        pad_low = np.amax(segment)
+        pad1 = np.amin(segment)
+        pad2 = np.amax(segment)
 
         count = 0
-        distance = 0
-        measure = False
+        x = 0
+        x1 = None
+        x2 = None
         for item in self.layout:
             if item['type'] == "contact":
                 count += 1
             # do not change the order of the if statements below
-            if count == pad_low:
+            if count == pad2:
+                x2 = ((x + item['width'] / 2) * ur.m).plus_minus(item['width'] / np.sqrt(12))
                 break
-            if measure:
-                distance += item['width']
-            if count == pad_high:
-                measure = True
+            if count == pad1:
+                x1 = ((x + item['width'] / 2) * ur.m).plus_minus(item['width'] / np.sqrt(12))
+            x += item['width']
 
-        return (distance * ur.m).plus_minus(self.sigma)
+        return x2 - x1
 
     @staticmethod
     def segment_to_pair(segment):
@@ -119,115 +269,13 @@ class ChipParameters():
         return [int(x) for x in pair.replace('P', '').split('-')]
 
 
-def load_data(path, order='vi'):
-    """Read data from files."""
-    # load data
-    df = pd.read_excel(path, skiprows=[5, 6]).T
-    data = {}
-    keys = [o.replace('i', 'current').replace('v', 'voltage') for o in order.lower()] \
-        + ['time', 'temperature']
-    for i, key in enumerate(keys):
-        data[key] = Q(df[i].to_numpy(), DEFAULT_UNITS[key])
-    return data
-
-
-def load_properties(path, names=None, sep='\t'):
-    """Load properties file."""
-    df = pd.read_csv(path, sep=sep, index_col=0)
-    if names is None:
-        names = df.index
-    props = {}
-    oldcols = ['input', 'output']
-    for name in names:
-        props[name] = {}
-        props[name]['order'] = ''
-        props[name]['temperature'] = Q(df.loc[name, 'temperature'])
-        for k in oldcols:
-            q = Q(df.loc[name, k])
-            if q.is_compatible_with(ur.V):
-                props[name]['order'] += 'v'
-                props[name]['voltage'] = q
-            elif q.is_compatible_with(ur.A):
-                props[name]['order'] += 'i'
-                props[name]['current'] = q
-            else:
-                raise ValueError(f"Unrecognized units {q.units} of name {name}")
-    return props
-
-
-# COMPUTE QUANTITIES FROM DATA
-
-def get_conductance(data, method="auto", bias_window=None, only_return=False, debug=False):
-    """Calculate conductance."""
-    if method == "auto":
-        if bias_window is None:
-            method = "fit"
-        else:
-            if np.multiply(*bias_window) < 0:
-                method = "fit"
-            else:
-                method = "average"
-
-    # prepare data
-    cond = data['voltage'] != 0
-    if only_return:
-        time_window = np.array([0.25, 0.75]) * data['time'][-1]
-        cond *= is_between(data['time'], time_window)
-    if bias_window is not None:
-        if not hasattr(bias_window, 'units'):
-            bias_window = bias_window * DEFAULT_UNITS['voltage']
-        cond *= is_between(data['voltage'], bias_window)
-
-    # calculate conductance
-    if method == "fit":
-        coeffs, model = fit_linear(data['voltage'][cond], data['current'][cond], debug=debug)
-        conductance = coeffs[0]
-    elif method == "average":
-        conductance = get_mean_std(data['current'][cond]/data['voltage'][cond])
-    else:
-        raise ValueError(f"Unrecognized method {method}.")
-
-    return conductance
-
-
-def get_tau(data, time_window, const_estimate_time=5*ur.s):
-    """Calculate time constant tau."""
-    t = data['time']
-    i = data['current']
-    if not hasattr(time_window, 'units'):
-        time_window *= DEFAULT_UNITS['time']
-    t_start = time_window[0]
-    t_end = time_window[1]
-    i_start = np.mean(data['current'][is_between(data['time'], [t_start - const_estimate_time, t_start])])
-    i_end = np.mean(data['current'][is_between(data['time'], [t_end - const_estimate_time, t_end])])
-    amp = i_start - i_end
-    offset = i_end
-
-    cond = is_between(t, [t_start, t_end])
-    t_cut = t[cond]
-    i_cut = i[cond]
-    sign = (-1) ** int(amp < 0)
-    t_end_decay = t_cut[np.nonzero(sign * i_cut < sign * (amp * np.exp(-3) + offset))[0][0]]
-
-    cond = is_between(t, [t_start, t_end_decay])
-    x = t[cond]
-    y = np.log(sign * (i[cond] - offset).magnitude) * ur.dimensionless
-
-    coeffs, model = fit_linear(x, y)
-    tau = - 1 / coeffs[0]
-
-    return tau
-
-
 # MEASUREMENTS HELP FUNCTIONS
 
 def measurement_is_equal(x, y):
     """Compare 2 independent measurements."""
     x_, dx, _ = separate_measurement(x)
     y_, dy, _ = separate_measurement(y)
-    if x_ == y_ and dx == dy:
-        return True
-    return False
+    return (x_ == y_) * (dx == dy)
 
 
 def measurement_is_present(x, arr):
@@ -236,36 +284,6 @@ def measurement_is_present(x, arr):
         if measurement_is_equal(x, y):
             return True
     return False
-
-
-def make_compatible(qd, q_ref):
-    """Set q_ref arrays to be the same for each mode and add nans to make the length of other quantities the same."""
-    # build ref
-    first = True
-    for mode in MODES:
-        if first:
-            ref = qd[mode][q_ref]
-            first = False
-        else:
-            for x in qd[mode][q_ref]:
-                if not measurement_is_present(x, ref):
-                    np.append(ref, x)
-    ref = np.sort(ref)
-
-    # adjust sizes
-    for mode in MODES:
-        for x in ref:
-            if not measurement_is_present(x, qd[mode][q_ref]):
-                qd[mode][q_ref] = np.append(qd[mode][q_ref], x)
-                for q in set(qd[mode].keys()) - set([q_ref]):
-                    qd[mode][q] = np.append(qd[mode][q], np.nan)
-
-        # sort arrays
-        indices = np.argsort(qd[mode][q_ref])
-        for q in qd[mode].keys():
-            qd[mode][q] = qd[mode][q][indices]
-
-    return qd
 
 
 def separate_measurement(x):
@@ -290,30 +308,25 @@ def std_devs(x):
     return dx * u
 
 
-def strip_units(a):
+# TODO change to just x.magnitude
+def strip_units(x):
     """Strip unit from Quantity x."""
-    if hasattr(a, "magnitude"):
-        s = a.magnitude
-    elif isinstance(a, np.ndarray):
-        s = np.array([strip_units(x) for x in a])
-    elif isinstance(a, list):
-        s = [strip_units(x) for x in a]
+    if hasattr(x, "magnitude"):
+        s = x.magnitude
+    elif isinstance(x, np.ndarray):
+        s = np.array([strip_units(x_) for x_ in x])
+    elif isinstance(x, list):
+        s = [strip_units(x_) for x_ in x]
     else:
-        s = a
+        s = x
     return s
-
-
-def qlist_to_array(x):
-    """Turn a quantity list in a numpy array."""
-    unit = x[0].units
-    return np.array(strip_units(x)) * unit
 
 
 # ANALYSIS
 
 def get_mean_std(x):
     """Calculate average with std."""
-    return np.mean(x).plus_minus(np.std(x))
+    return np.nanmean(x).plus_minus(np.nanstd(x))
 
 
 def fit_exponential(x, y, offset=None, ignore_err=False, debug=False):
@@ -340,7 +353,7 @@ def fit_exponential(x, y, offset=None, ignore_err=False, debug=False):
 
 
 def fit_linear(x, y, ignore_err=False, already_separated=False, debug=False):
-    """Calculate 1D linear fit (y = a*x + b)."""
+    """Calculate 1D linear fit (y = p[0] + p[1]*x)."""
     if already_separated:
         x_, dx, ux = x
         y_, dy, uy = y
@@ -350,48 +363,30 @@ def fit_linear(x, y, ignore_err=False, already_separated=False, debug=False):
     if ignore_err:
         dx = None
         dy = None
-    if dx is not None:
-        dx[dx == 0] = np.nan
     if dy is not None:
         dy[dy == 0] = np.nan
-    data = RealData(x_, y_, sx=dx, sy=dy)
+    if dx is not None:
+        dx[dx == 0] = np.nan
 
-    m = (y_[-1] - y_[0]) / (x_[-1] - x_[0])
-    q = y_[0] - m * x_[0]
+    p, pcov = np.polyfit(x_, y_, 1, w=dy, cov=True)
 
-    def model_fcn(b, x):
-        return b[0] * x + b[1]
+    if dx is not None and dy is not None:
+        dy_prop = np.sqrt(dy**2 + (p[1]*dx)**2)
+        p, pcov = np.polyfit(x_, y_, 1, w=dy_prop, cov=True)
 
-    odr_model = Model(model_fcn)
-    odr = ODR(data, odr_model, beta0=[m, q])
-    res = odr.run()
-
-    def are_res_dummy(res):
-        return res.beta[0] == m or res.beta[1] == q
-
-    if not ignore_err and are_res_dummy(res):
-        print('Fit using errors failed... doing fit without errors.')
-        ignore_err = True
-        data = RealData(x_, y_)
-        odr = ODR(data, odr_model, beta0=[m, q])
-        res = odr.run()
-    if ignore_err and are_res_dummy(res):
-        raise RuntimeError("Fit Failed!")
+    dp = np.sqrt(np.diag(pcov))
 
     # build result as physical quantities
     units = [uy/ux, uy]
-    coeffs = []
-    for i in range(len(res.beta)):
-        coeffs.append((res.beta[i] * units[i]).plus_minus(res.sd_beta[i]))
+    coeffs = [(p[i] * units[i]).plus_minus(dp[i]) for i in range(2)]
 
     if debug:
-        res.pprint()
         plt.figure()
         plt.errorbar(x_, y_, xerr=dx, yerr=dy, fmt='o')
-        plt.plot(x_, model_fcn(res.beta, x_))
+        plt.plot(x_, p[0]*x_ + p[1])
         plt.show()
 
-    return coeffs, lambda x, b=res.beta: model_fcn(b, x)
+    return coeffs, lambda x, p=p: p[0]*x + p[1]
 
 
 # OTHER HELP FUNCTIONS
@@ -406,16 +401,5 @@ def include_origin(ax, axis='xy'):
     return ax
 
 
-def strip_nan(*args):
-    """Strip value if is NaN in any of the arguments."""
-    args = [x for x in args if x is not None]
-    prod = True
-    for x in args:
-        prod *= x
-    indices = np.isnan(prod) == 0
-    for x in args:
-        x = x[indices]
-
-
-def is_between(x, window):
-    return np.logical_and(x > window[0], x < window[1])
+def is_between(x, win):
+    return np.logical_and(x > win[0], x < win[1])

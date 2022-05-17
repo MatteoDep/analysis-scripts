@@ -15,32 +15,40 @@ import analysis as a
 EXPERIMENT = 'light_effect'
 
 
-def get_temperature_dependence(names, props, **get_conductance_kwargs):
-    """Compute conductance over temperature with and without light."""
-    global data_dir
-    # load data properties
-    conductance = [] * a.ur.S
-    temperature = [] * a.ur.K
-    for name in names:
-        path = os.path.join(data_dir, name + '.xlsx')
-        data = a.load_data(path, order=props[name]['order'])
+def get_tau(data, time_window, const_estimate_time=5*a.ur.s):
+    """Calculate time constant tau."""
+    t = data['time']
+    i = data['current']
+    if not hasattr(time_window, 'units'):
+        time_window *= a.DEFAULT_UNITS['time']
+    t_start = time_window[0]
+    t_end = time_window[1]
+    i_start = np.mean(data['current'][a.is_between(data['time'], [t_start - const_estimate_time, t_start])])
+    i_end = np.mean(data['current'][a.is_between(data['time'], [t_end - const_estimate_time, t_end])])
+    amp = i_start - i_end
+    offset = i_end
 
-        conductance = np.append(
-            conductance,
-            a.get_conductance(data, **get_conductance_kwargs)
-        )
-        temperature = np.append(
-            temperature,
-            a.get_mean_std(data['temperature'])
-        )
-    return temperature, conductance
+    cond = a.is_between(t, [t_start, t_end])
+    t_cut = t[cond]
+    i_cut = i[cond]
+    sign = (-1) ** int(amp < 0)
+    t_end_decay = t_cut[np.nonzero(sign * i_cut < sign * (amp * np.exp(-3) + offset))[0][0]]
+
+    cond = a.is_between(t, [t_start, t_end_decay])
+    x = t[cond]
+    y = np.log(sign * (i[cond] - offset).magnitude) * a.ur.dimensionless
+
+    coeffs, model = a.fit_linear(x, y)
+    tau = - 1 / coeffs[0]
+
+    return tau
 
 
-def temp_dependence(names, props, hb_window=[22, 24]*a.ur.V, lb_window=[-1.5, 1.5]*a.ur.V):
+def temp_dependence(names, hb_window=[22, 24]*a.ur.V, lb_window=[-1.5, 1.5]*a.ur.V):
     """Main analysis routine.
     names: dictionary like {'lb':{ls1: [name1, name2, ...], ls2: [...], ...}, 'hb': {...}}.
     """
-    global data_dir, res_dir
+    global dh
     if not hasattr(hb_window, 'units'):
         hb_window *= a.DEFAULT_UNITS['voltage']
     if not hasattr(lb_window, 'units'):
@@ -56,8 +64,8 @@ def temp_dependence(names, props, hb_window=[22, 24]*a.ur.V, lb_window=[-1.5, 1.
             temperature[key][r] = {}
             conductance[key][r] = {}
             for ls in names[key][r]:
-                temperature[key][r][ls], conductance[key][r][ls] = get_temperature_dependence(
-                    names[key][r][ls], props, bias_window=bw
+                temperature[key][r][ls], conductance[key][r][ls] = dh.process(
+                        names[key][r][ls], {'get_temperature': {}, 'get_conductance': {'bias_win': bw}}
                 )
 
     fig, ax = plt.subplots()
@@ -138,7 +146,7 @@ def temp_dependence(names, props, hb_window=[22, 24]*a.ur.V, lb_window=[-1.5, 1.
 
 def time_constant(names, switches):
     """Compute time constants of dark-light switches."""
-    global data_dir, res_dir, props
+    global dh
 
     directions = ['fall', 'rise']
     tau = {}
@@ -149,19 +157,12 @@ def time_constant(names, switches):
         tau[key] = {d: [] * a.ur.s for d in directions}
         temperature[key] = [] * a.ur.K
         for i, name in enumerate(names[key]):
-            path = os.path.join(data_dir, name + '.xlsx')
-            data = a.load_data(path, order=props[name]['order'])
+            data = dh.load(name)
             dt = np.diff(switches[key][i])[0]
             for d, switch in zip(directions, switches[key][i]):
                 time_window = np.append([switch], switch + dt)
-                tau[key][d] = np.append(
-                    tau[key][d],
-                    a.get_tau(data, time_window)
-                )
-            temperature[key] = np.append(
-                temperature[key],
-                a.get_mean_std(data['temperature'])
-            )
+                tau[key][d] = np.append(tau[key][d], get_tau(data, time_window))
+            temperature[key] = np.append(temperature[key], dh.get_temperature())
 
     for key in names:
         fig, ax = plt.subplots()
@@ -182,7 +183,7 @@ def time_constant(names, switches):
 
 def color_dependence(names, time_window):
     """Plot the color_dependence."""
-    global data_dir, res_dir, props
+    global dh
     labels = ['blue', 'red', 'green', 'white', 'dark']
     colors = ['blue', 'red', 'green', 'yellow', 'black']
 
@@ -191,17 +192,11 @@ def color_dependence(names, time_window):
             time_window[key] *= a.DEFAULT_UNITS['time']
         fig, ax = plt.subplots()
         for i, name in enumerate(names[key]):
-            path = os.path.join(data_dir, name + '.xlsx')
-            data = a.load_data(path, order=props[name]['order'])
-            cond = a.is_between(data['time'], time_window[key])
-            x, dx, ux = a.separate_measurement(data['time'][cond])
-            y, dy, uy = a.separate_measurement(data['current'][cond])
-            ax.scatter(x, y, c=colors[i], label=labels[i])
+            dh.load(name)
+            dh.plot(ax, mode='i/t', color=colors[i], label=labels[i], x_win=time_window[key])
         ax.set_title("Color Dependence ({}, {}, {})".format(
-            key.replace('_', ' '), props[name]['voltage'], props[name]['temperature']
+            key.replace('_', ' '), dh.prop['voltage'], dh.prop['temperature']
         ))
-        ax.set_xlabel(fr"$T$ [${ux:~L}$]")
-        ax.set_ylabel(fr"$I$ [${uy:~L}$]")
         plt.legend()
         res_image = os.path.join(res_dir, f"{key}-color_dep.png")
         fig.savefig(res_image, dpi=300)
@@ -210,7 +205,7 @@ def color_dependence(names, time_window):
 
 def bias_dependence(names, switches):
     """Compute bias dependence."""
-    global data_dir, res_dir, props
+    global dh
 
     statuses = ['dark', 'light']
     conductance = {}
@@ -221,17 +216,15 @@ def bias_dependence(names, switches):
         conductance[key] = {s: [] * a.ur.S for s in statuses}
         voltage[key] = [] * a.ur.V
         for i, name in enumerate(names[key]):
-            path = os.path.join(data_dir, name + '.xlsx')
-            data = a.load_data(path, order=props[name]['order'])
+            dh.load(name)
             dt = np.diff(switches[key][i])[0] / 2
             for d, switch in zip(statuses, switches[key][i]):
-                time_window = np.append([switch], switch + dt)
-                cond = a.is_between(data['time'], time_window)
+                time_win = np.append([switch], switch + dt)
                 conductance[key][d] = np.append(
                     conductance[key][d],
-                    a.get_mean_std(data['current'][cond] / data['voltage'][cond])
+                    dh.get_conductance(method='average', time_win=time_win)
                 )
-            voltage[key] = np.append(voltage[key], props[name]['voltage'])
+            voltage[key] = np.append(voltage[key], dh.prop['voltage'])
 
     for key in names:
         fig, ax = plt.subplots()
@@ -262,17 +255,14 @@ def bias_dependence(names, switches):
 
 
 def plot_switches(names, switches):
-    global data_dir, res_dir, props
+    global dh
 
     for key in names:
         if not hasattr(switches[key], 'units'):
             switches[key] *= a.DEFAULT_UNITS['time']
         for i, name in enumerate(names[key]):
-            path = os.path.join(data_dir, name + '.xlsx')
-            data = a.load_data(path, order=props[name]['order'])
+            data = dh.load(name)
             fig, ax = plt.subplots()
-            x, dx, ux = a.separate_measurement(data['time'])
-            y, dy, uy = a.separate_measurement(data['current'])
             dt = a.Q('1s')
             for switch in switches[key][i]:
                 index0 = np.argmin(np.abs(data['time'] - (switch - dt)))
@@ -284,16 +274,14 @@ def plot_switches(names, switches):
                     d = 'uncovered'
                     c = 'green'
                 ax.axvline(x=switch, c=c, label=d)
-            ax.scatter(x, y)
-            ax.set_title(f"Switch ({key.replace('_', ' ')}, {props[name]['voltage']}, {props[name]['temperature']})")
-            ax.set_xlabel(fr"time [${ux:~L}$]")
-            ax.set_ylabel(fr"$I$ [${uy:~L}$]")
+            ax = dh.plot(ax, mode='i/t')
+            ax.set_title(f"Switch ({key.replace('_', ' ')}, {dh.prop['voltage']}, {dh.prop['temperature']})")
             plt.legend()
             res_image = os.path.join(
                 res_dir,
                 "{3}-switch{2}_{0.magnitude}{0.units}_{1.magnitude}{1.units}".format(
-                    props[name]['voltage'],
-                    props[name]['temperature'],
+                    dh.prop['voltage'],
+                    dh.prop['temperature'],
                     f"_{d}" if len(switches[key][i]) == 1 else "",
                     key
                 )
@@ -302,32 +290,22 @@ def plot_switches(names, switches):
             plt.close()
 
 
-def plot_ivs(names, correct_offset=True, voltage_window=[-24, 24]*a.ur.V):
-    global data_dir, res_dir, props
+def plot_ivs(names, correct_offset=True, voltage_win=[-24, 24]*a.ur.V):
+    global dh
     labels = ['light', 'dark']
 
     for key in names:
         for i, names_ in enumerate(names[key]):
             fig, ax = plt.subplots()
             for name, label in zip(names_, labels):
-                path = os.path.join(data_dir, name + '.xlsx')
-                data = a.load_data(path, order=props[name]['order'])
-                cond = a.is_between(data['voltage'], voltage_window)
-                x = data['voltage'][cond]
-                y = data['current'][cond]
-                if correct_offset:
-                    y -= np.mean(y)
-                x, dx, ux = a.separate_measurement(x)
-                y, dy, uy = a.separate_measurement(y)
-                ax.scatter(x, y, label=label)
-            ax.set_title(f"IV ({key.replace('_', ' ')}, {props[name]['temperature']})")
-            ax.set_xlabel(fr"$V$ [${ux:~L}$]")
-            ax.set_ylabel(fr"$I$ [${uy:~L}$]")
+                dh.load(name)
+                ax = dh.plot(ax, correct_offset=True, x_win=voltage_win)
+            ax.set_title(f"IV ({key.replace('_', ' ')}, {dh.prop['temperature']})")
             plt.legend()
             res_image = os.path.join(
                 res_dir,
                 "{1}-iv_{0.magnitude}{0.units}".format(
-                    props[name]['temperature'],
+                    dh.prop['temperature'],
                     key
                 )
             )
@@ -419,28 +397,21 @@ def heat_balance():
 
 if __name__ == "__main__":
     chip = "SIC1x"
-    pair = "P27-P28"
     data_dir = os.path.join('data', 'SIC1x')
     res_dir = os.path.join('results', EXPERIMENT, 'SIC1x')
-    prop_path = os.path.join(data_dir, 'properties.csv')
-
     os.makedirs(res_dir, exist_ok=True)
-    cp = a.ChipParameters(os.path.join("chips", chip + ".json"))
-    segment = cp.pair_to_segment(pair)
-    length = cp.get_distance(segment)
-    print(f"Analyzing {chip} {pair} of length {a.nominal_values(length).to_compact()}.")
 
     # load properties
-    props = a.load_properties(prop_path)
+    dh = a.DataHandler(data_dir)
 
     do = []
-    # do.append('temp_dependence')
-    # do.append('time_constant')
-    # do.append('color_dependence')
-    # do.append('bias_dependence')
-    # do.append('plot_switches')
-    # do.append('plot_ivs')
-    do.append('heat_balance')
+    do.append('temp_dependence')
+    do.append('time_constant')
+    do.append('color_dependence')
+    do.append('bias_dependence')
+    do.append('plot_switches')
+    do.append('plot_ivs')
+    # do.append('heat_balance')
 
     if 'temp_dependence' in do:
         names = {
@@ -535,7 +506,7 @@ if __name__ == "__main__":
                 },
             },
         }
-        temp_dependence(names, props)
+        temp_dependence(names)
 
     if 'time_constant' in do:
         names = {

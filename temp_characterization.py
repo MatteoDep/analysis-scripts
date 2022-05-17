@@ -8,77 +8,82 @@ Analize temperature dependence.
 import os
 import numpy as np
 from matplotlib import pyplot as plt
+
+from analysis import ur
 import analysis as a
 
 
 EXPERIMENT = 'temp_characterization'
 
 
-def temp_dependence(names):
+def temp_dependence(names, prefix=""):
     """Main analysis routine.
     names: list
     """
-    global data_dir, res_dir, props
+    global dh
+    biases = np.arange(0, 10, 2) * ur.V
+    delta_bias = 0.3 * ur.V
 
-    # compute temperature and conductance
-    bias_window = [-0.5, 0.5] * a.ur.V
-    conductance = [] * a.ur.S
-    temperature = [] * a.ur.K
+    temperature = [] * ur.K
+    conductance = [[] * ur.S for b in biases]
     for name in names:
-        path = os.path.join(data_dir, name + '.xlsx')
-        data = a.load_data(path, order=props[name]['order'])
+        dh.load(name)
+        temperature = np.append(temperature, dh.get_temperature())
+        for i, bias in enumerate(biases):
+            bias_win = [bias - delta_bias, bias + delta_bias]
+            if bias + delta_bias < dh.prop['voltage']:
+                conductance0 = dh.get_conductance(bias_win=bias_win, time_win=[0.25, 0.75])
+            else:
+                conductance0 = np.nan
+            conductance[i] = np.append(conductance[i], conductance0)
 
-        temperature0 = a.get_mean_std(data['temperature'])
-        conductance0 = a.get_conductance(data, bias_window=bias_window, only_return=True)
-        conductance = np.append(conductance, conductance0)
-        temperature = np.append(temperature, temperature0)
-
-    # fit
-    temp_thresh = 1 / (a.ur.k_B * 0.2 * a.ur['meV^-1'])
-    cond = a.is_between(temperature, [temp_thresh, 350 * a.ur.K])
-    y = conductance
-    x = (1 / (a.ur.k_B * temperature)).to('meV^-1')
-    coeffs, model = a.fit_exponential(x[cond], y[cond], ignore_err=True, debug=True)
-    act_energy = - coeffs[0]
-    print("act_energy:", act_energy)
-
-    fig, ax = plt.subplots()
+    temp_win = [100, 350] * ur.K
+    cond = a.is_between(temperature, temp_win)
+    x = 100 / temperature
     x_, dx, ux = a.separate_measurement(x)
-    y_, dy, uy = a.separate_measurement(conductance)
-    ax.errorbar(x_, y_, xerr=dx, yerr=dy, marker='o', linewidth=0)
-    ax.plot(x_[cond], model(x_[cond]))
+    fig, ax = plt.subplots(figsize=(12, 9))
+    cols = plt.cm.viridis(biases.magnitude / np.max(bias.magnitude))
+    for i, bias in enumerate(biases):
+        y = conductance[i]
+        y_, dy, uy = a.separate_measurement(y)
+        ax.errorbar(x_, y_, xerr=dx, yerr=dy, marker='o', c=cols[i], linewidth=0, label=fr'$V_b = {bias}$')
+        condtot = cond * (np.isnan(y_) == 0)
+        plt.legend()
+        if condtot.any() and i == 0:
+            coeffs, model = a.fit_exponential(x[condtot], y[condtot], debug=False)
+            act_energy = (- coeffs[0] * 100 * ur.k_B).to('meV')
+            print("Activation energy: {}".format(act_energy))
+            x1 = 100 / temp_win.magnitude
+            ax.plot(x1, model(x1), c='r', label=fr"$U_A = {act_energy}$")
     ax.set_title("Conductance")
-    ax.set_xlabel(fr"$\frac{{1}}{{k_BT}}$ [${ux:~L}$]")
+    ax.set_xlabel(fr"$\frac{{100}}{{T}}$ [${ux:~L}$]")
     ax.set_ylabel(fr"$G$ [${uy:~L}$]")
     ax.set_yscale('log')
-    res_image = os.path.join(res_dir, "temperature_dep.png")
+    res_image = os.path.join(res_dir, f"{prefix}temperature_dep.png")
     fig.savefig(res_image, dpi=300)
     plt.close()
 
 
-def plot_ivs(names, correct_offset=True, voltage_window=[-24, 24]*a.ur.V):
-    global data_dir, res_dir, props
+def plot_ivs(names):
+    global dh
 
     for name in names:
-        fig, ax = plt.subplots()
-        path = os.path.join(data_dir, name + '.xlsx')
-        data = a.load_data(path, order=props[name]['order'])
-        cond = a.is_between(data['voltage'], voltage_window)
-        x = data['voltage'][cond]
-        y = data['current'][cond]
-        if correct_offset:
-            y -= np.mean(y)
-        x, dx, ux = a.separate_measurement(x)
-        y, dy, uy = a.separate_measurement(y)
-        ax.scatter(x, y)
-        ax.set_title(f"IV ({props[name]['temperature']})")
-        ax.set_xlabel(fr"$V$ [${ux:~L}$]")
-        ax.set_ylabel(fr"$I$ [${uy:~L}$]")
+        dh.load(name)
+        if dh.prop['temperature'] < 20 * ur.K:
+            fig, (ax, ax1) = plt.subplots(1, 2)
+            ax1 = dh.plot(ax1)
+            ax1.set_xlim([-2, 2])
+            ax1.set_ylim([-5e-13, 5e-13])
+        else:
+            fig, ax = plt.subplots()
+        ax = dh.plot(ax)
+        fig.suptitle(f"IV ({dh.prop['temperature']})")
         res_image = os.path.join(
             res_dir,
-            "iv_{0.magnitude}{0.units}_{1}.png".format(
-                props[name]['temperature'],
-                name
+            "{1}_{2}_iv_{0.magnitude}{0.units}.png".format(
+                dh.prop['temperature'],
+                dh.chip_name,
+                dh.prop['pair']
             )
         )
         fig.savefig(res_image, dpi=300)
@@ -86,30 +91,26 @@ def plot_ivs(names, correct_offset=True, voltage_window=[-24, 24]*a.ur.V):
 
 
 def capacitance_study(names):
-    bias_window = [-1.5, 1.5] * a.ur.V
-    rel_time_windows = [[0.75, 1], [0.25, 0.75]]
-    conductance = [] * a.ur.S
-    frequency = [] * a.ur.hertz
-    temperature = [] * a.ur.K
-    capacitance = [] * a.ur.pF
+    global dh
+    bias_win = [-1.5, 1.5] * ur.V
+    rel_time_wins = [[0.75, 1], [0.25, 0.75]]
+    conductance = [] * ur.S
+    frequency = [] * ur.hertz
+    temperature = [] * ur.K
+    capacitance = [] * ur.pF
 
     for name in names:
-        print(name)
-        path = os.path.join(data_dir, name + '.xlsx')
-        data = a.load_data(path, order=props[name]['order'])
-        temperature = np.append(
-            temperature,
-            a.get_mean_std(data['temperature'])
-        )
-        conductance0 = [] * a.ur.S
-        offset = [] * a.ur.A
+        data = dh.load(name)
+        temperature = np.append(temperature, dh.get_temperature())
+        conductance0 = [] * ur.S
+        offset = [] * ur.A
 
         # prepare data
-        bias_cond = a.is_between(data['voltage'], bias_window)
+        bias_cond = a.is_between(data['voltage'], bias_win)
         total_time = data['time'][-1]
-        for rel_time_window in rel_time_windows:
-            time_window = [x * total_time for x in rel_time_window]
-            time_cond = a.is_between(data['time'], time_window)
+        for rel_time_win in rel_time_wins:
+            time_win = [x * total_time for x in rel_time_win]
+            time_cond = a.is_between(data['time'], time_win)
             cond = bias_cond * time_cond
 
             coeffs, model = a.fit_linear(data['voltage'][cond], data['current'][cond])
@@ -141,20 +142,16 @@ def capacitance_study(names):
 
 
 if __name__ == "__main__":
-    chip = "SOC3"
-    pair = "P27-P28"
+    # chip = "SOC3"
+    chip = "SPC2"
+    # pair = "P2-P4"
+    pair = "P17-P18"
+    prefix = f"{chip}_{pair}_"
     data_dir = os.path.join('data', chip)
     res_dir = os.path.join('results', EXPERIMENT, chip)
-    prop_path = os.path.join(data_dir, 'properties.csv')
-
     os.makedirs(res_dir, exist_ok=True)
-    cp = a.ChipParameters(os.path.join("chips", chip + ".json"))
-    segment = cp.pair_to_segment(pair)
-    length = cp.get_distance(segment)
-    print(f"Analyzing {chip} {pair} of length {a.nominal_values(length).to_compact()}.")
 
-    # load properties
-    props = a.load_properties(prop_path)
+    dh = a.DataHandler(data_dir)
 
     do = []
     do.append('temp_dependence')
@@ -162,72 +159,84 @@ if __name__ == "__main__":
     # do.append('capacitance_study')
 
     if 'temp_dependence' in do:
-        names = [
-            'SOC3_15',
-            'SOC3_16',
-            'SOC3_17',
-            'SOC3_18',
-            'SOC3_19',
-            'SOC3_20',
-            'SOC3_21',
-            'SOC3_22',
-            'SOC3_23',
-            'SOC3_24',
-            'SOC3_25',
-            'SOC3_26',
-            'SOC3_27',
-            'SOC3_28',
-            'SOC3_29',
-            'SOC3_30',
-            'SOC3_31',
-            'SOC3_32',
-            'SOC3_49',
-            'SOC3_50',
-            'SOC3_51',
-            'SOC3_52',
-            'SOC3_53',
-            'SOC3_54',
-            'SOC3_55',
-            'SOC3_56',
-            'SOC3_57',
-            'SOC3_58',
-            'SOC3_59',
-            'SOC3_60',
-            'SOC3_61',
-            'SOC3_62',
-            'SOC3_63',
-            'SOC3_64',
-            'SOC3_65',
-            'SOC3_66',
-            'SOC3_67',
-            'SOC3_68',
-            'SOC3_69',
-            'SOC3_70',
-            'SOC3_71',
-            'SOC3_72',
-            'SOC3_73',
-            'SOC3_74',
-            'SOC3_75',
-            'SOC3_76',
-            'SOC3_77',
-            'SOC3_78',
-            'SOC3_79',
-            'SOC3_80',
-            'SOC3_81',
-            'SOC3_82',
-            'SOC3_83',
-            'SOC3_84',
-            'SOC3_85',
-            'SOC3_86',
-            'SOC3_87',
-            'SOC3_88',
-            'SOC3_89',
-            'SOC3_90',
-        ]
-        temp_dependence(names)
+        if chip == 'SPC2':
+            if pair == 'P2-P4':
+                nums = np.arange(45, 74)
+                names = [f"{chip}_{i}" for i in nums]
+            elif pair == 'P17-P18':
+                nums = np.arange(78, 94)
+                names = [f"{chip}_{i}" for i in nums]
+        if chip == 'SOC3':
+            names = [
+                'SOC3_15',
+                'SOC3_16',
+                'SOC3_17',
+                'SOC3_18',
+                'SOC3_19',
+                'SOC3_20',
+                'SOC3_21',
+                'SOC3_22',
+                'SOC3_23',
+                'SOC3_24',
+                'SOC3_25',
+                'SOC3_26',
+                'SOC3_27',
+                'SOC3_28',
+                'SOC3_29',
+                'SOC3_30',
+                'SOC3_31',
+                'SOC3_32',
+                'SOC3_49',
+                'SOC3_50',
+                'SOC3_51',
+                'SOC3_52',
+                'SOC3_53',
+                'SOC3_54',
+                'SOC3_55',
+                'SOC3_56',
+                'SOC3_57',
+                'SOC3_58',
+                'SOC3_59',
+                'SOC3_60',
+                'SOC3_61',
+                'SOC3_62',
+                'SOC3_63',
+                'SOC3_64',
+                'SOC3_65',
+                'SOC3_66',
+                'SOC3_67',
+                'SOC3_68',
+                'SOC3_69',
+                'SOC3_70',
+                'SOC3_71',
+                'SOC3_72',
+                'SOC3_73',
+                'SOC3_74',
+                'SOC3_75',
+                'SOC3_76',
+                'SOC3_77',
+                'SOC3_78',
+                'SOC3_79',
+                'SOC3_80',
+                'SOC3_81',
+                'SOC3_82',
+                'SOC3_83',
+                'SOC3_84',
+                'SOC3_85',
+                'SOC3_86',
+                'SOC3_87',
+                'SOC3_88',
+                'SOC3_89',
+                'SOC3_90',
+            ]
+        temp_dependence(names, prefix=prefix)
 
     if 'plot_ivs' in do:
-        names = [f'SOC3_{i}' for i in range(90, 91)]
+        if chip == 'SPC2':
+            nums = np.arange(45, 74)
+            names = [f"{chip}_{i}" for i in nums]
+        if chip == 'SOC3':
+            names = [f'SOC3_{i}' for i in range(90, 91)]
         plot_ivs(names)
 
     if 'capacitance_study' in do:
