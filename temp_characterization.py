@@ -8,6 +8,7 @@ Analize temperature dependence.
 import os
 import numpy as np
 from matplotlib import pyplot as plt
+from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 
 from analysis import ur
 import analysis as a
@@ -31,13 +32,10 @@ def temp_dependence(names, prefix=""):
         temperature = np.append(temperature, dh.get_temperature())
         for i, bias in enumerate(biases):
             bias_win = [bias - delta_bias, bias + delta_bias]
-            if bias + delta_bias < dh.prop['voltage']:
-                conductance0 = dh.get_conductance(bias_win=bias_win, time_win=[0.25, 0.75])
-            else:
-                conductance0 = np.nan
+            conductance0 = dh.get_conductance(bias_win=bias_win, time_win=[0.25, 0.75])
             conductance[i] = np.append(conductance[i], conductance0)
 
-    temp_win = [100, 350] * ur.K
+    temp_win = [101, 350] * ur.K
     cond = a.is_between(temperature, temp_win)
     x = 100 / temperature
     x_, dx, ux = a.separate_measurement(x)
@@ -47,14 +45,14 @@ def temp_dependence(names, prefix=""):
         y = conductance[i]
         y_, dy, uy = a.separate_measurement(y)
         ax.errorbar(x_, y_, xerr=dx, yerr=dy, marker='o', c=cols[i], linewidth=0, label=fr'$V_b = {bias}$')
-        condtot = cond * (np.isnan(y_) == 0)
-        plt.legend()
-        if condtot.any() and i == 0:
-            coeffs, model = a.fit_exponential(x[condtot], y[condtot], debug=False)
+        cond *= (np.isnan(y_) == 0)
+        if cond.any() and i == 0:
+            coeffs, model = a.fit_exponential(x[cond], y[cond], debug=False)
             act_energy = (- coeffs[0] * 100 * ur.k_B).to('meV')
             print("Activation energy: {}".format(act_energy))
             x1 = 100 / temp_win.magnitude
             ax.plot(x1, model(x1), c='r', label=fr"$U_A = {act_energy}$")
+    ax.legend()
     ax.set_title("Conductance")
     ax.set_xlabel(fr"$\frac{{100}}{{T}}$ [${ux:~L}$]")
     ax.set_ylabel(fr"$G$ [${uy:~L}$]")
@@ -69,14 +67,10 @@ def plot_ivs(names):
 
     for name in names:
         dh.load(name)
-        if dh.prop['temperature'] < 20 * ur.K:
-            fig, (ax, ax1) = plt.subplots(1, 2)
-            ax1 = dh.plot(ax1)
-            ax1.set_xlim([-2, 2])
-            ax1.set_ylim([-5e-13, 5e-13])
-        else:
-            fig, ax = plt.subplots()
-        ax = dh.plot(ax)
+        fig, ax1 = plt.subplots(figsize=(15, 10))
+        dh.plot(ax1)
+        ax2 = inset_axes(ax1, width='35%', height='35%', loc=4, borderpad=4)
+        dh.plot(ax2, x_win=[-2, 2]*ur.V)
         fig.suptitle(f"IV ({dh.prop['temperature']})")
         res_image = os.path.join(
             res_dir,
@@ -142,10 +136,10 @@ def capacitance_study(names):
 
 
 if __name__ == "__main__":
-    # chip = "SOC3"
-    chip = "SPC2"
-    # pair = "P2-P4"
-    pair = "P17-P18"
+    chip = "SOC3"
+    # chip = "SPC2"
+    pair = "P2-P4"
+    # pair = "P17-P18"
     prefix = f"{chip}_{pair}_"
     data_dir = os.path.join('data', chip)
     res_dir = os.path.join('results', EXPERIMENT, chip)
@@ -153,98 +147,24 @@ if __name__ == "__main__":
 
     dh = a.DataHandler(data_dir)
 
-    do = []
-    do.append('temp_dependence')
-    # do.append('plot_ivs')
-    # do.append('capacitance_study')
-
-    if 'temp_dependence' in do:
-        if chip == 'SPC2':
-            if pair == 'P2-P4':
-                nums = np.arange(45, 74)
-                names = [f"{chip}_{i}" for i in nums]
-            elif pair == 'P17-P18':
-                nums = np.arange(78, 94)
-                names = [f"{chip}_{i}" for i in nums]
-        if chip == 'SOC3':
-            names = [
-                'SOC3_15',
-                'SOC3_16',
-                'SOC3_17',
-                'SOC3_18',
-                'SOC3_19',
-                'SOC3_20',
-                'SOC3_21',
-                'SOC3_22',
-                'SOC3_23',
-                'SOC3_24',
-                'SOC3_25',
-                'SOC3_26',
-                'SOC3_27',
-                'SOC3_28',
-                'SOC3_29',
-                'SOC3_30',
-                'SOC3_31',
-                'SOC3_32',
-                'SOC3_49',
-                'SOC3_50',
-                'SOC3_51',
-                'SOC3_52',
-                'SOC3_53',
-                'SOC3_54',
-                'SOC3_55',
-                'SOC3_56',
-                'SOC3_57',
-                'SOC3_58',
-                'SOC3_59',
-                'SOC3_60',
-                'SOC3_61',
-                'SOC3_62',
-                'SOC3_63',
-                'SOC3_64',
-                'SOC3_65',
-                'SOC3_66',
-                'SOC3_67',
-                'SOC3_68',
-                'SOC3_69',
-                'SOC3_70',
-                'SOC3_71',
-                'SOC3_72',
-                'SOC3_73',
-                'SOC3_74',
-                'SOC3_75',
-                'SOC3_76',
-                'SOC3_77',
-                'SOC3_78',
-                'SOC3_79',
-                'SOC3_80',
-                'SOC3_81',
-                'SOC3_82',
-                'SOC3_83',
-                'SOC3_84',
-                'SOC3_85',
-                'SOC3_86',
-                'SOC3_87',
-                'SOC3_88',
-                'SOC3_89',
-                'SOC3_90',
-            ]
-        temp_dependence(names, prefix=prefix)
-
-    if 'plot_ivs' in do:
-        if chip == 'SPC2':
+    if chip == 'SPC2':
+        if pair == 'P2-P4':
             nums = np.arange(45, 74)
-            names = [f"{chip}_{i}" for i in nums]
-        if chip == 'SOC3':
-            names = [f'SOC3_{i}' for i in range(90, 91)]
-        plot_ivs(names)
+        elif pair == 'P17-P18':
+            nums = np.arange(78, 108)
+    if chip == 'SOC3':
+        nums = np.arange(49, 91)
+    names = [f"{chip}_{i}" for i in nums]
 
-    if 'capacitance_study' in do:
-        names = [
-            'SOC3_44',
-            'SOC3_45',
-            'SOC3_46',
-            # 'SOC3_47',
-            'SOC3_49',
-        ]
-        capacitance_study(names)
+    temp_dependence(names, prefix=prefix)
+
+    plot_ivs(names)
+
+    # names = [
+    #     'SOC3_44',
+    #     'SOC3_45',
+    #     'SOC3_46',
+    #     # 'SOC3_47',
+    #     'SOC3_49',
+    # ]
+    # capacitance_study(names)

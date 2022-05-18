@@ -121,6 +121,8 @@ class DataHandler:
                 if not hasattr(bias_win[0], 'units'):
                     bias_win = bias_win * self.prop['voltage']
             cond *= is_between(self.data['voltage'], bias_win)
+        if not cond.any():
+            return np.nan
 
         # calculate conductance
         if method == "fit":
@@ -156,12 +158,12 @@ class DataHandler:
         # correct data
         if correct_offset:
             y -= np.mean(y)
-        cond = np.ones(x.shape)
+        cond = np.ones(x.shape, dtype=bool)
         if x_win is not None:
             cond *= is_between(x, x_win)
         if y_win is not None:
             cond *= is_between(y, y_win)
-        ax.scatter(x, y, label=label, c=color, s=markersize, edgecolors=None)
+        ax.scatter(x[cond], y[cond], label=label, c=color, s=markersize, edgecolors=None)
         if set_xy_label:
             ysym, xsym = [
                 c.upper() if c in 'iv' else c for c in mode.split('/')
