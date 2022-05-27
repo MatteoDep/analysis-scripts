@@ -10,6 +10,7 @@ Email: matteo.dep97@gmail.com
 import os
 import numpy as np
 import pandas as pd
+import shutil
 
 
 def load(name):
@@ -34,13 +35,16 @@ def modify_gain(df, key, fact):
 if __name__ == "__main__":
     chip = "SPC2"
     data_dir = os.path.join('data', chip)
-    if not os.path.exists(data_dir + '_copy'):
-        os.popen(f'cp {data_dir} {data_dir}_copy')
+    bkp_data_dir = data_dir + '_bkp'
+    os.makedirs(bkp_data_dir, exist_ok=True)
 
-    nums = np.arange(45, 74)
+    nums = np.arange(148, 149)
     names = [f"{chip}_{i}" for i in nums]
 
     for name in names:
+        bkp_path = os.path.join(bkp_data_dir, name + '.xlsx')
+        if not os.path.exists(bkp_path):
+            shutil.copyfile(os.path.join(data_dir, name + '.xlsx'), bkp_path)
         df = load(name)
-        df = modify_gain(df, 'input', 2)
+        df = modify_gain(df, 'output', 10)
         save(df, name)
