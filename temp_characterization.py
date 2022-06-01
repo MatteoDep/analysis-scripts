@@ -17,42 +17,67 @@ import analysis as a
 EXPERIMENT = 'temp_characterization'
 
 
-def temp_dependence(names, biases=np.arange(0, 14, 2) * ur.V, prefix=""):
+def temp_dependence(names, fields=np.arange(0, 2, 0.05) * ur['V/um'], prefix=""):
     """Main analysis routine.
     names: list
     """
     global dh
-    if not hasattr(biases, 'units'):
-        biases *= ur.V
-    delta_bias = 0.3 * ur.V
+    if not hasattr(fields, 'units'):
+        fields *= ur['V/um']
+    delta_field = 0.05 * ur['V/um']
+    temp_field_thresh = 1 * ur['V*K/um']
 
     temperature = [] * ur.K
-    conductance = [[] * ur.S for b in biases]
-    for name in names:
+    conductance = [[] * ur.S for f in fields]
+    max_i = len(fields)
+    for j, name in enumerate(names):
         dh.load(name)
-        temperature = np.append(temperature, dh.get_temperature())
-        for i, bias in enumerate(biases):
-            bias_win = [bias - delta_bias, bias + delta_bias]
-            conductance0 = dh.get_conductance(bias_win=bias_win, time_win=[0.25, 0.75])
+        temperature0 = dh.get_temperature()
+        temperature = np.append(temperature, temperature0)
+        length0 = dh.get_length()
+        if j == 0:
+            print("Pair {} of length {}.".format(dh.prop['pair'], length0.to('um')))
+            cond = dh.data['voltage'] > temp_field_thresh * length0 / temperature0
+            conductance_lowtemp = dh.data['current'][cond] / dh.data['voltage'][cond]
+            fields_lowtemp = dh.data['voltage'][cond] / length0
+        for i, field in enumerate(fields):
+            bias_win = [] * ur.V
+            bias_win = np.append(bias_win, (field - delta_field) * length0)
+            bias_win = np.append(bias_win, (field + delta_field) * length0)
+            if i < max_i and max(field, delta_field) * temperature0 > temp_field_thresh:
+                conductance0 = dh.get_conductance(bias_win=bias_win, time_win=[0.25, 0.75])
+                if conductance0 is None:
+                    max_i = i
+                    if j == 0:
+                        fields = fields[:max_i]
+            else:
+                conductance0 = np.nan
             conductance[i] = np.append(conductance[i], conductance0)
 
+    # sort with increasing temperature
+    indices = np.argsort(temperature)
+    temperature = temperature[indices]
+    for i, _ in enumerate(fields):
+        conductance[i] = conductance[i][indices]
+
+    # plot temperature dependence
     temp_win = [101, 350] * ur.K
     cond = a.is_between(temperature, temp_win)
     x = 100 / temperature
     x_, dx, ux = a.separate_measurement(x)
     fig, ax = plt.subplots(figsize=(12, 9))
-    cols = plt.cm.viridis(biases.magnitude / np.max(bias.magnitude))
-    for i, bias in enumerate(biases):
+    cols = plt.cm.viridis(fields.magnitude / np.max(fields.magnitude))
+    for i, field in enumerate(fields):
         y = conductance[i]
         y_, dy, uy = a.separate_measurement(y)
         nancond = (np.isnan(y_) == 0)
         if nancond.any():
-            ax.errorbar(x_, y_, xerr=dx, yerr=dy, marker='o', c=cols[i], linewidth=0, label=fr'$V_b = {bias}$')
+            ax.errorbar(x_, y_, xerr=dx, yerr=dy, marker='o', c=cols[i], linewidth=0, label=fr'$V_b = {field}$')
             cond *= nancond
             if cond.any() and i == 0:
-                coeffs, model = a.fit_exponential(x[cond], y[cond], debug=False)
+                coeffs, model = a.fit_exponential(x[cond], y[cond])
                 act_energy = (- coeffs[0] * 100 * ur.k_B).to('meV')
-                print("Activation energy: {}".format(act_energy))
+                print("Activation energy:", act_energy)
                 x1 = 100 / temp_win.magnitude
                 ax.plot(x1, model(x1), c='r', label=fr"$U_A = {act_energy}$")
     ax.legend()
@@ -63,6 +88,20 @@ def temp_dependence(names, biases=np.arange(0, 14, 2) * ur.V, prefix=""):
     res_image = os.path.join(res_dir, f"{prefix}temperature_dep.png")
     fig.savefig(res_image, dpi=300)
     plt.close()
+
+    # Power law
+    temp_win = [20, 100] * ur.K
+    cond = a.is_between(temperature, temp_win)
+    x = temperature
+    y = conductance[0]
+    coeffs, model = a.fit_powerlaw(x[cond], y[cond])
+    alpha = coeffs[0]
+    print("alpha:", alpha)
+    x = fields_lowtemp
+    y = conductance_lowtemp
+    coeffs, model = a.fit_powerlaw(x, y)
+    beta = coeffs[0]
+    print("beta:", beta)
 
 
 def plot_ivs(names):
@@ -141,9 +180,9 @@ def capacitance_study(names, bias_win=[-1.5, 1.5]*ur.V):
 if __name__ == "__main__":
     # chip = "SOC3"
     chip = "SPC2"
-    pair = "P2-P4"
+    # pair = "P2-P4"
     # pair = "P17-P18"
-    # pair = "P15-P17"
+    pair = "P15-P17"
     # pair = "P7-P8"
     # pair = "P13-P14"
     prefix = f"{chip}_{pair}_"
@@ -165,25 +204,28 @@ if __name__ == "__main__":
             nums = np.arange(156, 186)
             biases = np.arange(0, 4)
         elif pair == 'P13-P14':
-            nums = np.arange(195, 226)
+            nums = np.concatenate([np.arange(195, 201),
+                                   np.arange(202, 203),
+                                   np.arange(204, 208),
+                                   np.arange(209, 226)])
             biases = np.arange(0, 5)
     if chip == 'SOC3':
         nums = np.arange(49, 91)
     names = [f"{chip}_{i}" for i in nums]
 
-    # temp_dependence(names, biases=biases, prefix=prefix)
+    temp_dependence(names, prefix=prefix)
 
     # plot_ivs(names)
 
-    if chip == 'SPC2':
-        if pair == 'P2-P4':
-            # nums = np.arange(186, 193)
-            nums = [186] + list(range(188, 193))
-            bias_win = [-4, 4] * ur.V
-    if chip == 'SOC3':
-        if pair == 'P2-P4':
-            nums = [44, 45, 46, 49]
-            bias_win = [-1.5, 1.5] * ur.V
-    names = [f"{chip}_{i}" for i in nums]
+    # if chip == 'SPC2':
+    #     if pair == 'P2-P4':
+    #         # nums = np.arange(186, 193)
+    #         nums = [186] + list(range(188, 193))
+    #         bias_win = [-4, 4] * ur.V
+    # if chip == 'SOC3':
+    #     if pair == 'P2-P4':
+    #         nums = [44, 45, 46, 49]
+    #         bias_win = [-1.5, 1.5] * ur.V
+    # names = [f"{chip}_{i}" for i in nums]
 
-    capacitance_study(names, bias_win=bias_win)
+    # capacitance_study(names, bias_win=bias_win)

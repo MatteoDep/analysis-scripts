@@ -20,7 +20,7 @@ rcParams.update({'figure.autolayout': True})
 ur = pint.UnitRegistry()
 ur.setup_matplotlib()
 Q = ur.Quantity
-ur.default_format = "~P"
+ur.default_format = ".2f~P"
 
 NUM_FIBERS = 60
 FIBER_RADIUS = (25 * ur.nanometer).plus_minus(3)
@@ -122,7 +122,7 @@ class DataHandler:
                     bias_win = bias_win * self.prop['voltage']
             cond *= is_between(self.data['voltage'], bias_win)
         if not cond.any():
-            return np.nan
+            return None
 
         # calculate conductance
         if method == "fit":
@@ -256,7 +256,7 @@ class Chip():
             if count == pad2:
                 x2 = ((x + item['width'] / 2) * ur.m).plus_minus(item['width'] / np.sqrt(12))
                 break
-            if count == pad1:
+            if count == pad1 and x1 is None:
                 x1 = ((x + item['width'] / 2) * ur.m).plus_minus(item['width'] / np.sqrt(12))
             x += item['width']
 
@@ -310,6 +310,12 @@ def std_devs(x):
     return dx * u
 
 
+def strip_nan(*args):
+    """Strip value if is NaN in any of the arguments."""
+    indices = np.isnan(np.prod([x for x in args if x is not None], axis=0)) == 0
+    return [x[indices] if x is not None else None for x in args]
+
+
 # TODO change to just x.magnitude
 def strip_units(x):
     """Strip unit from Quantity x."""
@@ -331,7 +337,7 @@ def get_mean_std(x):
     return np.nanmean(x).plus_minus(np.nanstd(x))
 
 
-def fit_exponential(x, y, offset=None, ignore_err=False, debug=False):
+def fit_powerlaw(x, y, offset=None, **kwargs):
     """Calculate 1D exponential fit (y = exp(a*x + b) + offset)."""
     if offset is not None:
         y1 = y - offset
@@ -339,19 +345,51 @@ def fit_exponential(x, y, offset=None, ignore_err=False, debug=False):
         y1 = y
     x_, dx, ux = separate_measurement(x)
     y1_, dy1, uy1 = separate_measurement(y1)
-    coeffs, _ = fit_linear((x_, dx, ux), (np.log(y1_), dy1 / y1_, ur.dimensionless),
-                           already_separated=True, ignore_err=ignore_err, debug=debug)
 
-    def model_fcn(b, x, offset):
-        return np.exp(b[0] * x + b[1]) + offset
+    # apply log
+    cond = (x_ > 0) * (y1_ > 0)
+    dx = dx[cond] / x_[cond] if dx is not None else None
+    x_ = np.log(x_[cond])
+    ux = ur.dimensionless
+    dy1 = dy1[cond] / y1_[cond] if dy1 is not None else None
+    y1_ = np.log(y1_[cond])
+    uy1 = ur.dimensionless
 
-    beta = [separate_measurement(c)[0] for c in coeffs]
+    coeffs, _ = fit_linear((x_, dx, ux), (y1_, dy1, uy1), already_separated=True, **kwargs)
+
+    p = [separate_measurement(c)[0] for c in coeffs]
     if offset is None:
-        offset_ = 0
+        offset = 0
     else:
-        offset_, _, _ = separate_measurement(offset)
+        offset, _, _ = separate_measurement(offset)
 
-    return coeffs, lambda x, b=beta, offset=offset_: model_fcn(b, x, offset)
+    return coeffs, lambda x, p=p, offset=offset: p[1] * x ** p[0] + offset
+
+
+def fit_exponential(x, y, offset=None, **kwargs):
+    """Calculate 1D exponential fit (y = exp(a*x + b) + offset)."""
+    if offset is not None:
+        y1 = y - offset
+    else:
+        y1 = y
+    x_, dx, ux = separate_measurement(x)
+    y1_, dy1, uy1 = separate_measurement(y1)
+
+    # apply log
+    cond = (y1_ > 0)
+    dy1 = dy1[cond] / y1_[cond] if dy1 is not None else None
+    y1_ = np.log(y1_[cond])
+    uy1 = ur.dimensionless
+
+    coeffs, _ = fit_linear((x_, dx, ux), (y1_, dy1, uy1), already_separated=True, **kwargs)
+
+    p = [separate_measurement(c)[0] for c in coeffs]
+    if offset is None:
+        offset = 0
+    else:
+        offset, _, _ = separate_measurement(offset)
+
+    return coeffs, lambda x, p=p, offset=offset: np.exp(p[0] * x + p[1]) + offset
 
 
 def fit_linear(x, y, ignore_err=False, already_separated=False, debug=False):
@@ -369,12 +407,13 @@ def fit_linear(x, y, ignore_err=False, already_separated=False, debug=False):
         dy[dy == 0] = np.nan
     if dx is not None:
         dx[dx == 0] = np.nan
+    x_, dx, y_, dy = strip_nan(x_, dx, y_, dy)
 
-    p, pcov = np.polyfit(x_, y_, 1, w=dy, cov=True)
+    p, pcov = np.polyfit(x_, y_, 1, w=1/dy if dy is not None else None, cov=True)
 
     if dx is not None and dy is not None:
         dy_prop = np.sqrt(dy**2 + (p[1]*dx)**2)
-        p, pcov = np.polyfit(x_, y_, 1, w=dy_prop, cov=True)
+        p, pcov = np.polyfit(x_, y_, 1, w=1/dy_prop, cov=True)
 
     dp = np.sqrt(np.diag(pcov))
 
