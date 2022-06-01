@@ -17,28 +17,27 @@ import analysis as a
 EXPERIMENT = 'temp_characterization'
 
 
-def temp_dependence(names, fields=np.arange(0, 2, 0.05) * ur['V/um'], prefix=""):
+def temp_dependence(names, prefix=""):
     """Main analysis routine.
     names: list
     """
     global dh
-    if not hasattr(fields, 'units'):
-        fields *= ur['V/um']
-    delta_field = 0.05 * ur['V/um']
-    temp_field_thresh = 1 * ur['V*K/um']
+    fields = np.concatenate([[0.02], np.arange(0.05, 2, 0.05)]) * ur['V/um']
+    delta_field = 0.02 * ur['V/um']
+    temp_field_thresh = 1.1 * ur['V*K/um']
 
     temperature = [] * ur.K
-    conductance = [[] * ur.S for f in fields]
+    conductance = []
     max_i = len(fields)
     for j, name in enumerate(names):
         dh.load(name)
         temperature0 = dh.get_temperature()
         temperature = np.append(temperature, temperature0)
-        length0 = dh.get_length()
         if j == 0:
+            length0 = dh.get_length()
             print("Pair {} of length {}.".format(dh.prop['pair'], length0.to('um')))
             cond = dh.data['voltage'] > temp_field_thresh * length0 / temperature0
-            conductance_lowtemp = dh.data['current'][cond] / dh.data['voltage'][cond]
+            conductance_lowtemp = (dh.data['current'][cond] / dh.data['voltage'][cond]).to('S')
             fields_lowtemp = dh.data['voltage'][cond] / length0
         for i, field in enumerate(fields):
             bias_win = [] * ur.V
@@ -50,8 +49,11 @@ def temp_dependence(names, fields=np.arange(0, 2, 0.05) * ur['V/um'], prefix="")
                     max_i = i
                     if j == 0:
                         fields = fields[:max_i]
+                        break
             else:
                 conductance0 = np.nan
+            if j == 0:
+                conductance.append([] * ur.S)
             conductance[i] = np.append(conductance[i], conductance0)
 
     # sort with increasing temperature
@@ -71,15 +73,14 @@ def temp_dependence(names, fields=np.arange(0, 2, 0.05) * ur['V/um'], prefix="")
         y = conductance[i]
         y_, dy, uy = a.separate_measurement(y)
         nancond = (np.isnan(y_) == 0)
-        if nancond.any():
-            ax.errorbar(x_, y_, xerr=dx, yerr=dy, marker='o', c=cols[i], linewidth=0, label=fr'$V_b = {field}$')
-            cond *= nancond
-            if cond.any() and i == 0:
-                coeffs, model = a.fit_exponential(x[cond], y[cond])
-                act_energy = (- coeffs[0] * 100 * ur.k_B).to('meV')
-                print("Activation energy:", act_energy)
-                x1 = 100 / temp_win.magnitude
-                ax.plot(x1, model(x1), c='r', label=fr"$U_A = {act_energy}$")
+        cond *= nancond
+        ax.errorbar(x_, y_, xerr=dx, yerr=dy, fmt='--o', zorder=i, c=cols[i], label=fr'$V_b = {field}$')
+        if cond.any() and i == 0:
+            coeffs, model = a.fit_exponential(x[cond], y[cond])
+            act_energy = (- coeffs[0] * 100 * ur.k_B).to('meV')
+            print("Activation energy:", act_energy)
+            x1 = 100 / temp_win.magnitude
+            ax.plot(x1, model(x1), c='r', zorder=len(fields), label=fr"$U_A = {act_energy}$")
     ax.legend()
     ax.set_title("Conductance")
     ax.set_xlabel(fr"$\frac{{100}}{{T}}$ [${ux:~L}$]")
@@ -90,18 +91,42 @@ def temp_dependence(names, fields=np.arange(0, 2, 0.05) * ur['V/um'], prefix="")
     plt.close()
 
     # Power law
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 9))
     temp_win = [20, 100] * ur.K
     cond = a.is_between(temperature, temp_win)
-    x = temperature
-    y = conductance[0]
-    coeffs, model = a.fit_powerlaw(x[cond], y[cond])
+    x = temperature[cond]
+    y = conductance[0][cond]
+    coeffs, model = a.fit_powerlaw(x, y)
     alpha = coeffs[0]
     print("alpha:", alpha)
+    x_, dx, ux = a.separate_measurement(x)
+    y_, dy, uy = a.separate_measurement(y)
+    ax1.errorbar(x_, y_, xerr=dx, yerr=dy, fmt='o', zorder=1, label='data')
+    ax1.plot(x_, model(x_), 'r', zorder=2, label='fit')
+    ax1.set_title(fr'$\alpha = {alpha}$')
+    ax1.set_xscale('log')
+    ax1.set_yscale('log')
+    ax1.set_xlabel(fr"$T$ [${ux:~L}$]")
+    ax1.set_ylabel(fr"$G$ [${uy:~L}$]")
+    ax1.legend()
     x = fields_lowtemp
     y = conductance_lowtemp
     coeffs, model = a.fit_powerlaw(x, y)
     beta = coeffs[0]
     print("beta:", beta)
+    x_, dx, ux = a.separate_measurement(x)
+    y_, dy, uy = a.separate_measurement(y)
+    ax2.errorbar(x_, y_, xerr=dx, yerr=dy, fmt='o', zorder=1, label='data')
+    ax2.plot(x_, model(x_), c='r', zorder=2, label='fit')
+    ax2.set_title(fr'$\beta = {beta}$')
+    ax2.set_xscale('log')
+    ax2.set_yscale('log')
+    ax2.set_xlabel(fr"$V_b$ [${ux:~L}$]")
+    ax2.set_ylabel(fr"$G$ [${uy:~L}$]")
+    ax2.legend()
+    res_image = os.path.join(res_dir, f"{prefix}power_law.png")
+    fig.savefig(res_image, dpi=300)
+    plt.close()
 
 
 def plot_ivs(names):
@@ -131,9 +156,9 @@ if __name__ == "__main__":
     chip = "SPC2"
     # pair = "P2-P4"
     # pair = "P17-P18"
-    pair = "P15-P17"
+    # pair = "P15-P17"
     # pair = "P7-P8"
-    # pair = "P13-P14"
+    pair = "P13-P14"
     prefix = f"{chip}_{pair}_"
     data_dir = os.path.join('data', chip)
     res_dir = os.path.join('results', EXPERIMENT, chip)

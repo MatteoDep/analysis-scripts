@@ -363,7 +363,7 @@ def fit_powerlaw(x, y, offset=None, **kwargs):
     else:
         offset, _, _ = separate_measurement(offset)
 
-    return coeffs, lambda x, p=p, offset=offset: p[1] * x ** p[0] + offset
+    return coeffs, lambda x, p=p, offset=offset: np.exp(p[1]) * x ** p[0] + offset
 
 
 def fit_exponential(x, y, offset=None, **kwargs):
