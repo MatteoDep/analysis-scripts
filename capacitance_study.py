@@ -8,7 +8,6 @@ Analize temperature dependence.
 import os
 import numpy as np
 from matplotlib import pyplot as plt
-from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 
 from analysis import ur
 import analysis as a

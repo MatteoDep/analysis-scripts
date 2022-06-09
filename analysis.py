@@ -13,6 +13,7 @@ from matplotlib import pyplot as plt
 import pint
 from uncertainties import unumpy as unp
 from matplotlib import rcParams
+import warnings
 
 
 rcParams.update({'figure.autolayout': True})
@@ -80,11 +81,8 @@ class DataHandler:
     def load(self, name):
         """Read data from files."""
         # reset quantities
-        resetnot = ['data_dir', 'chips_dir', 'props', 'chips']
-        attributes = [x for x in dir(self) if not callable(getattr(self, x)) and not x.startswith('__')]
-        for x in attributes:
-            if x not in resetnot:
-                setattr(self, x, None)
+        self.length = None
+        self.temperature = None
         # load data
         self.name = name
         self.chip_name = self.name.split('_')[0]
@@ -98,53 +96,48 @@ class DataHandler:
             self.data[key] = Q(df[i].to_numpy(), DEFAULT_UNITS[key])
         return self.data
 
-    def get_conductance(self, method="auto", bias_win=None, time_win=None, debug=False):
+    def get_conductance(self, method="all", time_win=None, bias_win=None, noise_level=1*ur.pA,
+                        correct_offset=True, debug=False):
         """Calculate conductance."""
-        if method == "auto":
-            if bias_win is None:
-                method = "fit"
-            else:
-                if np.multiply(*bias_win) < 0:
-                    method = "fit"
-                else:
-                    method = "average"
-
         # prepare data
-        cond = self.data['voltage'] != 0
+        voltage = self.data['voltage']
+        current = self.data['current']
+        cond = np.ones(self.data['voltage'].shape, dtype=bool)
         if time_win is not None:
-            if not hasattr(time_win, 'units'):
-                if not hasattr(time_win[0], 'units'):
-                    time_win = np.array(time_win) * self.data['time'][-1]
             cond *= is_between(self.data['time'], time_win)
+        if correct_offset:
+            bias_cond = is_between(voltage, [-0.05, 0.05] * ur['V/um'] * self.get_length())
+            current -= np.mean(current[cond * bias_cond])
         if bias_win is not None:
-            if not hasattr(bias_win, 'units'):
-                if not hasattr(bias_win[0], 'units'):
-                    bias_win = bias_win * self.prop['voltage']
             cond *= is_between(self.data['voltage'], bias_win)
-        if not cond.any():
-            return None
+        cond *= (np.abs(current) > noise_level)
 
         # calculate conductance
         if method == "fit":
-            coeffs, model = fit_linear(self.data['voltage'][cond], self.data['current'][cond], debug=debug)
+            coeffs, model = fit_linear(voltage[cond], current[cond], debug=debug)
             conductance = coeffs[0]
-        elif method == "average":
-            conductance = get_mean_std(self.data['current'][cond]/self.data['voltage'][cond])
+        elif method == 'all':
+            cond *= voltage >= voltage[1]
+            conductance = current / np.where(cond, voltage, np.nan)
         else:
             raise ValueError(f"Unrecognized method {method}.")
 
-        return conductance
+        return conductance.to('S')
 
     def get_resistance(self, **kwargs):
         return 1 / self.get_conductance(**kwargs)
 
     def get_temperature(self):
-        return get_mean_std(self.data['temperature'])
+        if self.temperature is None:
+            self.temperature = get_mean_std(self.data['temperature'])
+        return self.temperature
 
     def get_length(self):
-        if self.chip_name not in self.chips:
-            self.chips[self.chip_name] = Chip(os.path.join(self.chips_dir, self.chip_name + '.json'))
-        return self.chips[self.chip_name].get_distance(self.prop['pair'])
+        if self.length is None:
+            if self.chip_name not in self.chips:
+                self.chips[self.chip_name] = Chip(os.path.join(self.chips_dir, self.chip_name + '.json'))
+            self.length = self.chips[self.chip_name].get_distance(self.prop['pair'])
+        return self.length
 
     def plot(self, ax, mode='i/v', correct_offset=False, x_win=None, y_win=None, label=r'{prop[temperature]}',
              color=None, markersize=5, set_xy_label=True):
@@ -254,10 +247,10 @@ class Chip():
                 count += 1
             # do not change the order of the if statements below
             if count == pad2:
-                x2 = ((x + item['width'] / 2) * ur.m).plus_minus(item['width'] / np.sqrt(12))
+                x2 = ((x + item['width'] / 2) * ur.um).plus_minus(item['width'] / np.sqrt(12))
                 break
             if count == pad1 and x1 is None:
-                x1 = ((x + item['width'] / 2) * ur.m).plus_minus(item['width'] / np.sqrt(12))
+                x1 = ((x + item['width'] / 2) * ur.um).plus_minus(item['width'] / np.sqrt(12))
             x += item['width']
 
         return x2 - x1
@@ -310,9 +303,19 @@ def std_devs(x):
     return dx * u
 
 
+def isnan(x):
+    if hasattr(x, 'units'):
+        x_, dx, ux = separate_measurement(x)
+        if dx is not None:
+            return np.isnan(x_ * dx)
+        return np.isnan(x_)
+    else:
+        return np.isnan(x)
+
+
 def strip_nan(*args):
     """Strip value if is NaN in any of the arguments."""
-    indices = np.isnan(np.prod([x for x in args if x is not None], axis=0)) == 0
+    indices = np.sum([isnan(x) for x in args if x is not None], axis=0) == 0
     return [x[indices] if x is not None else None for x in args]
 
 
@@ -334,7 +337,8 @@ def strip_units(x):
 
 def get_mean_std(x):
     """Calculate average with std."""
-    return np.nanmean(x).plus_minus(np.nanstd(x))
+    res = np.nanmean(x).plus_minus(np.nanstd(x))
+    return res
 
 
 def fit_powerlaw(x, y, offset=None, **kwargs):
@@ -356,6 +360,8 @@ def fit_powerlaw(x, y, offset=None, **kwargs):
     uy1 = ur.dimensionless
 
     coeffs, _ = fit_linear((x_, dx, ux), (y1_, dy1, uy1), already_separated=True, **kwargs)
+    if coeffs is None:
+        return None, None
 
     p = [separate_measurement(c)[0] for c in coeffs]
     if offset is None:
@@ -377,11 +383,15 @@ def fit_exponential(x, y, offset=None, **kwargs):
 
     # apply log
     cond = (y1_ > 0)
+    dx = dx[cond] if dx is not None else None
+    x_ = x_[cond]
     dy1 = dy1[cond] / y1_[cond] if dy1 is not None else None
     y1_ = np.log(y1_[cond])
     uy1 = ur.dimensionless
 
     coeffs, _ = fit_linear((x_, dx, ux), (y1_, dy1, uy1), already_separated=True, **kwargs)
+    if coeffs is None:
+        return None, None
 
     p = [separate_measurement(c)[0] for c in coeffs]
     if offset is None:
@@ -392,7 +402,7 @@ def fit_exponential(x, y, offset=None, **kwargs):
     return coeffs, lambda x, p=p, offset=offset: np.exp(p[0] * x + p[1]) + offset
 
 
-def fit_linear(x, y, ignore_err=False, already_separated=False, debug=False):
+def fit_linear(x, y, ignore_err=False, already_separated=False, check_nan=True, debug=False):
     """Calculate 1D linear fit (y = p[0] + p[1]*x)."""
     if already_separated:
         x_, dx, ux = x
@@ -404,10 +414,14 @@ def fit_linear(x, y, ignore_err=False, already_separated=False, debug=False):
         dx = None
         dy = None
     if dy is not None:
-        dy[dy == 0] = np.nan
-    if dx is not None:
-        dx[dx == 0] = np.nan
-    x_, dx, y_, dy = strip_nan(x_, dx, y_, dy)
+        cond = dy == 0
+        dy[cond] = np.nanmin(dy[np.where(cond, False, True)])/2
+    if check_nan:
+        x_, dx, y_, dy = strip_nan(x_, dx, y_, dy)
+
+    if len(x_) < 1:
+        warnings.warn('Not enough points for fit.', RuntimeWarning)
+        return None, None
 
     p, pcov = np.polyfit(x_, y_, 1, w=1/dy if dy is not None else None, cov=True)
 
@@ -443,4 +457,6 @@ def include_origin(ax, axis='xy'):
 
 
 def is_between(x, win):
+    if not hasattr(win[0], 'units'):
+        win = np.array(win) * np.amax(x)
     return np.logical_and(x > win[0], x < win[1])
