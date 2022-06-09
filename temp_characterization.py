@@ -21,7 +21,9 @@ EXPERIMENT = 'temp_characterization'
 def get_conductance_vs_temperature():
     global dh, noise_level
     fields = np.concatenate([[0.01], np.arange(0.05, 2, 0.05)]) * ur['V/um']
-    delta_field = 0.005 * ur['V/um']
+    delta_field = 0.01 * ur['V/um']
+    time_win = [0.25, 0.75]
+
     temperature = [] * ur.K
     conductance = []
     max_j = len(fields)
@@ -36,7 +38,8 @@ def get_conductance_vs_temperature():
             fields = fields[(fields + delta_field) * length < dh.prop['voltage']]
             print("Chip {}, Pair {} of length {}.".format(chip_name, pair, length))
         print(f"\rProcessing {i+1} of {len(names)}.", end='', flush=True)
-        full_conductance = dh.get_conductance(time_win=[0.25, 0.75], noise_level=noise_level)
+        full_conductance = dh.get_conductance(time_win=time_win)
+        full_conductance_masked = dh.get_conductance(time_win=time_win, noise_level=noise_level)
         for j, field in enumerate(fields):
             if j < max_j:
                 bias_win = [
@@ -44,16 +47,20 @@ def get_conductance_vs_temperature():
                     (field + delta_field) * length
                 ]
                 cond = a.is_between(dh.data['voltage'], bias_win)
-                part_conductance = full_conductance[cond]
-                # Note that since we use the time window [0.25, 0.75] 50% will always be masked
-                if 2 * np.sum(a.isnan(part_conductance)) > np.sum(cond) + 1:
-                    conductance0 = np.nan
-                elif dh.prop['voltage'] < bias_win[1]:
+                part_conductance = full_conductance_masked[cond]
+                if dh.prop['voltage'] < bias_win[1]:
                     max_j = j
                     conductance0 = np.nan
                 else:
-                    conductance0 = a.get_mean_std(part_conductance)
-                    print("conductance0:", conductance0)
+                    # Note that since using the time window [0.25, 0.75] 50% will always be masked
+                    nans_ratio = np.sum(a.isnan(part_conductance)) / np.sum(cond)
+                    if nans_ratio == 1:
+                        conductance0 = np.nan
+                    elif nans_ratio < 0.51:
+                        conductance0 = a.average(part_conductance)
+                    else:
+                        part_conductance = full_conductance[cond]
+                        conductance0 = a.average(part_conductance)
             else:
                 conductance0 = np.nan
             if i == 0:

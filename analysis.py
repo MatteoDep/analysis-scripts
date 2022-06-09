@@ -96,9 +96,12 @@ class DataHandler:
             self.data[key] = Q(df[i].to_numpy(), DEFAULT_UNITS[key])
         return self.data
 
-    def get_conductance(self, method="all", time_win=None, bias_win=None, noise_level=1*ur.pA,
-                        correct_offset=True, debug=False):
+    def get_conductance(self, method='all', time_win=None, bias_win=None, noise_level=None,
+                        correct_offset=None, debug=False):
         """Calculate conductance."""
+        if correct_offset is None:
+            correct_offset = False if method == 'fit' else True
+
         # prepare data
         voltage = self.data['voltage']
         current = self.data['current']
@@ -110,10 +113,11 @@ class DataHandler:
             current -= np.mean(current[cond * bias_cond])
         if bias_win is not None:
             cond *= is_between(self.data['voltage'], bias_win)
-        cond *= (np.abs(current) > noise_level)
+        if noise_level is not None:
+            cond *= (np.abs(current) > noise_level)
 
         # calculate conductance
-        if method == "fit":
+        if method == 'fit':
             coeffs, model = fit_linear(voltage[cond], current[cond], debug=debug)
             conductance = coeffs[0]
         elif method == 'all':
@@ -129,7 +133,7 @@ class DataHandler:
 
     def get_temperature(self):
         if self.temperature is None:
-            self.temperature = get_mean_std(self.data['temperature'])
+            self.temperature = average(self.data['temperature'])
         return self.temperature
 
     def get_length(self):
@@ -335,10 +339,26 @@ def strip_units(x):
 
 # ANALYSIS
 
-def get_mean_std(x):
-    """Calculate average with std."""
-    res = np.nanmean(x).plus_minus(np.nanstd(x))
-    return res
+def average(x, ignore_err=False, already_separated=False, check_nan=True, debug=False):
+    """Calculate average with standard error."""
+    if already_separated:
+        x_, dx, ux = x
+    else:
+        x_, dx, ux = separate_measurement(x)
+    if ignore_err:
+        dx = None
+    if dx is not None:
+        cond = dx == 0
+        dx[cond] = np.nanmin(dx[np.where(cond, False, True)])/2
+    if check_nan:
+        x_, dx = strip_nan(x_, dx)
+
+    w = 1 / dx**2 if dx is not None else None
+    avg = np.average(x_, weights=w)
+    n = len(x_)
+    std_err = np.sqrt((n / (n-1)**2) * np.average((x_-avg)**2, weights=w))
+
+    return (avg * ux).plus_minus(std_err * ux)
 
 
 def fit_powerlaw(x, y, offset=None, **kwargs):
