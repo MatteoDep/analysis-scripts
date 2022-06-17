@@ -10,9 +10,9 @@ import os
 import numpy as np
 import pandas as pd
 from matplotlib import pyplot as plt
-import pint
-from uncertainties import unumpy as unp
 from matplotlib import rcParams
+from uncertainties import unumpy as unp
+import pint
 import warnings
 
 
@@ -20,7 +20,6 @@ rcParams.update({'figure.autolayout': True})
 
 ur = pint.UnitRegistry()
 ur.setup_matplotlib()
-Q = ur.Quantity
 ur.default_format = ".2f~P"
 
 NUM_FIBERS = 60
@@ -28,11 +27,13 @@ FIBER_RADIUS = (25 * ur.nanometer).plus_minus(3)
 
 
 DEFAULT_UNITS = {
-    'voltage': ur.V,
+    'bias': ur.V,
+    'gate': ur.V,
     'current': ur.A,
     'time': ur.s,
     'temperature': ur.K,
     'conductance': ur.S,
+    'resistance': ur['Mohm'],
     'length': ur.m,
 }
 
@@ -44,56 +45,73 @@ class DataHandler:
     Loads data and builds quantities arrays.
     """
 
-    def __init__(self, data_dir, chips_dir='chips', **props_kwargs):
+    def __init__(self, data_dir='data', chips_dir='chips'):
         self.data_dir = data_dir
         self.chips_dir = chips_dir
-        self.props = self.load_properties(**props_kwargs)
-        self.chips = {}
+        self.props = {}
+        self.cps = {}
+        self.name = None
         pass
 
-    def load_properties(self, path=None, names=None):
+    def load_chip(self, chip, names=None):
         """Load properties file."""
-        if path is None:
-            path = os.path.join(self.data_dir, 'properties.csv')
-        df = pd.read_csv(path, sep='\t', index_col=0)
+        # extend chip parameters dict
+        cp_path = os.path.join(self.chips_dir, chip + '.json')
+        self.cps[chip] = ChipParameters(cp_path)
+        # extend properties dict
+        props_path = os.path.join(self.data_dir, chip, 'properties.csv')
+        df = pd.read_csv(props_path, sep='\t', index_col=0)
         if names is None:
             names = df.index
-        self.props = {}
         oldcols = ['input', 'output']
         for name in names:
             self.props[name] = {}
             self.props[name]['pair'] = df.loc[name, 'pair']
             self.props[name]['injection'] = df.loc[name, 'injection']
-            self.props[name]['temperature'] = Q(df.loc[name, 'temperature'])
+            self.props[name]['temperature'] = ur.Quantity(df.loc[name, 'temperature'])
             self.props[name]['order'] = ''
             for k in oldcols:
-                q = Q(df.loc[name, k])
+                q = ur.Quantity(df.loc[name, k])
                 if q.is_compatible_with(ur.V):
                     self.props[name]['order'] += 'v'
-                    self.props[name]['voltage'] = q
+                    self.props[name]['bias'] = q
                 elif q.is_compatible_with(ur.A):
                     self.props[name]['order'] += 'i'
                     self.props[name]['current'] = q
                 else:
                     raise ValueError(f"Unrecognized units {q.units} of name {name}")
-        return self.props
 
     def load(self, name):
         """Read data from files."""
-        # reset quantities
-        self.length = None
-        self.temperature = None
+        old_name = self.name
+        if name == old_name:
+            return self.data
+
         # load data
         self.name = name
-        self.chip_name = self.name.split('_')[0]
+        self.chip = self.name.split('_')[0]
         self.prop = self.props[name]
-        path = os.path.join(self.data_dir, name + '.xlsx')
-        df = pd.read_excel(path, skiprows=[5, 6]).T
         self.data = {}
-        keys = [o.replace('i', 'current').replace('v', 'voltage') for o in self.prop['order']] \
-            + ['time', 'temperature']
-        for i, key in enumerate(keys):
-            self.data[key] = Q(df[i].to_numpy(), DEFAULT_UNITS[key])
+        path_name = os.path.join(self.data_dir, self.chip, name)
+        if os.path.isfile(path_name + '.xlsx'):
+            df = pd.read_excel(path_name + '.xlsx', skiprows=[5, 6]).T
+            keys = [o.replace('i', 'current').replace('v', 'bias') for o in self.prop['order']] \
+                + ['time', 'temperature']
+            for i, key in enumerate(keys):
+                self.data[key] = ur.Quantity(df[i].to_numpy(), DEFAULT_UNITS[key])
+        elif os.path.isfile(path_name + '.csv'):
+            df = pd.read_csv(path_name + '.csv')
+            old_keys = ['x1', 'y', 'x2', 'temp', 't']
+            keys = [o.replace('i', 'current').replace('v', 'bias') for o in self.prop['order']] \
+                + ['gate', 'temperature', 'time']
+            for old_key, key in zip(old_keys, keys):
+                self.data[key] = ur.Quantity(df[old_key].to_numpy(), DEFAULT_UNITS[key])
+
+        # reset quantities
+        if old_name is None or self.props[old_name]['pair'] != self.prop['pair']:
+            self.length = None
+        self.temperature = None
+        self.gate = None
         return self.data
 
     def get_conductance(self, method='all', time_win=None, bias_win=None, noise_level=None,
@@ -103,50 +121,58 @@ class DataHandler:
             correct_offset = False if method == 'fit' else True
 
         # prepare data
-        voltage = self.data['voltage']
+        bias = self.data['bias']
         current = self.data['current']
-        cond = np.ones(self.data['voltage'].shape, dtype=bool)
+        cond = np.ones(self.data['bias'].shape, dtype=bool)
         if time_win is not None:
             cond *= is_between(self.data['time'], time_win)
         if correct_offset:
-            bias_cond = is_between(voltage, [-0.05, 0.05] * ur['V/um'] * self.get_length())
+            bias_cond = is_between(bias, [-0.05, 0.05] * ur['V/um'] * self.get_length())
             current -= np.mean(current[cond * bias_cond])
         if bias_win is not None:
-            cond *= is_between(self.data['voltage'], bias_win)
+            cond *= is_between(self.data['bias'], bias_win)
         if noise_level is not None:
             cond *= (np.abs(current) > noise_level)
 
         # calculate conductance
         if method == 'fit':
-            coeffs, model = fit_linear(voltage[cond], current[cond], debug=debug)
+            coeffs, model = fit_linear(bias[cond], current[cond], debug=debug)
             conductance = coeffs[0]
-        elif method == 'all':
-            cond *= voltage >= voltage[1]
-            conductance = current / np.where(cond, voltage, np.nan)
         else:
-            raise ValueError(f"Unrecognized method {method}.")
+            cond *= bias != 0 * ur.V
+            conductance = current / np.where(cond, bias, np.nan)
+            if method == 'average':
+                conductance = average(conductance)
+            elif method == 'all':
+                pass
+            else:
+                raise ValueError(f"Unrecognized method {method}.")
 
-        return conductance.to('S')
+        return conductance.to(DEFAULT_UNITS['conductance'])
 
     def get_resistance(self, **kwargs):
-        return 1 / self.get_conductance(**kwargs)
+        return (1 / self.get_conductance(**kwargs)).to(DEFAULT_UNITS['resistance'])
 
     def get_temperature(self):
         if self.temperature is None:
             self.temperature = average(self.data['temperature'])
         return self.temperature
 
+    def get_gate(self):
+        if self.gate is None:
+            self.gate = average(self.data['gate'])
+        return self.gate
+
     def get_length(self):
         if self.length is None:
-            if self.chip_name not in self.chips:
-                self.chips[self.chip_name] = Chip(os.path.join(self.chips_dir, self.chip_name + '.json'))
-            self.length = self.chips[self.chip_name].get_distance(self.prop['pair'])
+            self.length = self.cps[self.chip].get_distance(self.prop['pair'])
         return self.length
 
     def plot(self, ax, mode='i/v', correct_offset=False, x_win=None, y_win=None, label=r'{prop[temperature]}',
              color=None, markersize=5, set_xy_label=True):
         ykey, xkey = [
-            c.replace('v', 'voltage').replace('i', 'current') if c != 't' else 'time' for c in mode.lower().split('/')
+            c.replace('vg', 'gate').replace('v', 'bias').replace('i', 'current') if c != 't' else 'time'
+            for c in mode.lower().split('/')
         ]
         x = self.data[xkey]
         y = self.data[ykey]
@@ -185,7 +211,7 @@ class DataHandler:
         return res
 
 
-class Chip():
+class ChipParameters():
     """Define chip parameters."""
 
     def __init__(self, config=None):
@@ -287,24 +313,14 @@ def measurement_is_present(x, arr):
 
 def separate_measurement(x):
     """Get parameters to feed ODR from Quantities."""
-    x_ = unp.nominal_values(strip_units(x))
-    dx = unp.std_devs(strip_units(x))
+    x_ = unp.nominal_values(x.magnitude)
+    dx = unp.std_devs(x.magnitude)
     if len(x_.shape) == 0:
         x_ = float(x_)
         dx = float(dx) if dx != 0 else None
     elif (dx == 0).all():
         dx = None
     return x_, dx, x.units
-
-
-def nominal_values(x):
-    x_, _, u = separate_measurement(x)
-    return x_ * u
-
-
-def std_devs(x):
-    _, dx, u = separate_measurement(x)
-    return dx * u
 
 
 def isnan(x):
@@ -321,20 +337,6 @@ def strip_nan(*args):
     """Strip value if is NaN in any of the arguments."""
     indices = np.sum([isnan(x) for x in args if x is not None], axis=0) == 0
     return [x[indices] if x is not None else None for x in args]
-
-
-# TODO change to just x.magnitude
-def strip_units(x):
-    """Strip unit from Quantity x."""
-    if hasattr(x, "magnitude"):
-        s = x.magnitude
-    elif isinstance(x, np.ndarray):
-        s = np.array([strip_units(x_) for x_ in x])
-    elif isinstance(x, list):
-        s = [strip_units(x_) for x_ in x]
-    else:
-        s = x
-    return s
 
 
 # ANALYSIS
@@ -358,7 +360,7 @@ def average(x, ignore_err=False, already_separated=False, check_nan=True, debug=
     n = len(x_)
     std_err = np.sqrt((n / (n-1)**2) * np.average((x_-avg)**2, weights=w))
 
-    return (avg * ux).plus_minus(std_err * ux)
+    return (avg * ux).plus_minus(std_err)
 
 
 def fit_powerlaw(x, y, offset=None, **kwargs):

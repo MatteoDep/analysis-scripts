@@ -12,7 +12,7 @@ from matplotlib import pyplot as plt
 import analysis as a
 
 
-EXPERIMENT = 'light_effect'
+EXPERIMENT = os.path.splitext(os.path.basename(__file__))[0]
 
 
 def get_tau(data, time_window, const_estimate_time=5*a.ur.s):
@@ -50,9 +50,9 @@ def temp_dependence(names, hb_window=[22, 24]*a.ur.V, lb_window=[-1.5, 1.5]*a.ur
     """
     global dh
     if not hasattr(hb_window, 'units'):
-        hb_window *= a.DEFAULT_UNITS['voltage']
+        hb_window *= a.DEFAULT_UNITS['bias']
     if not hasattr(lb_window, 'units'):
-        lb_window *= a.DEFAULT_UNITS['voltage']
+        lb_window *= a.DEFAULT_UNITS['bias']
 
     # compute temperature and conductance
     conductance = {}
@@ -195,7 +195,7 @@ def color_dependence(names, time_window):
             dh.load(name)
             dh.plot(ax, mode='i/t', color=colors[i], label=labels[i], x_win=time_window[key])
         ax.set_title("Color Dependence ({}, {}, {})".format(
-            key.replace('_', ' '), dh.prop['voltage'], dh.prop['temperature']
+            key.replace('_', ' '), dh.prop['bias'], dh.prop['temperature']
         ))
         plt.legend()
         res_image = os.path.join(res_dir, f"{key}-color_dep.png")
@@ -209,12 +209,12 @@ def bias_dependence(names, switches):
 
     statuses = ['dark', 'light']
     conductance = {}
-    voltage = {}
+    bias = {}
     for key in names:
         if not hasattr(switches[key], 'units'):
             switches[key] *= a.DEFAULT_UNITS['time']
         conductance[key] = {s: [] * a.ur.S for s in statuses}
-        voltage[key] = [] * a.ur.V
+        bias[key] = [] * a.ur.V
         for i, name in enumerate(names[key]):
             dh.load(name)
             dt = np.diff(switches[key][i])[0] / 2
@@ -224,12 +224,12 @@ def bias_dependence(names, switches):
                     conductance[key][d],
                     dh.get_conductance(method='average', time_win=time_win)
                 )
-            voltage[key] = np.append(voltage[key], dh.prop['voltage'])
+            bias[key] = np.append(bias[key], dh.prop['bias'])
 
     for key in names:
         fig, ax = plt.subplots()
         for s in statuses:
-            x, dx, ux = a.separate_measurement(voltage[key])
+            x, dx, ux = a.separate_measurement(bias[key])
             y, dy, uy = a.separate_measurement(conductance[key][s])
             ax.errorbar(x, y, xerr=dx, yerr=dy, marker='o', label=s)
         ax.set_title(f"Bias Dependence ({key.replace('_', ' ')})")
@@ -242,7 +242,7 @@ def bias_dependence(names, switches):
         plt.close()
 
         fig, ax = plt.subplots()
-        x, dx, ux = a.separate_measurement(voltage[key])
+        x, dx, ux = a.separate_measurement(bias[key])
         y, dy, uy = a.separate_measurement(np.divide(*[conductance[key][s] for s in statuses[::-1]]))
         ax.errorbar(x, y, xerr=dx, yerr=dy, marker='o')
         ax.set_title(f"Relative Bias Dependence ({key.replace('_', ' ')})")
@@ -275,12 +275,12 @@ def plot_switches(names, switches):
                     c = 'green'
                 ax.axvline(x=switch, c=c, label=d)
             ax = dh.plot(ax, mode='i/t')
-            ax.set_title(f"Switch ({key.replace('_', ' ')}, {dh.prop['voltage']}, {dh.prop['temperature']})")
+            ax.set_title(f"Switch ({key.replace('_', ' ')}, {dh.prop['bias']}, {dh.prop['temperature']})")
             plt.legend()
             res_image = os.path.join(
                 res_dir,
                 "{3}-switch{2}_{0.magnitude}{0.units}_{1.magnitude}{1.units}".format(
-                    dh.prop['voltage'],
+                    dh.prop['bias'],
                     dh.prop['temperature'],
                     f"_{d}" if len(switches[key][i]) == 1 else "",
                     key
@@ -290,7 +290,7 @@ def plot_switches(names, switches):
             plt.close()
 
 
-def plot_ivs(names, correct_offset=True, voltage_win=[-24, 24]*a.ur.V):
+def plot_ivs(names, correct_offset=True, bias_win=[-24, 24]*a.ur.V):
     global dh
     labels = ['light', 'dark']
 
@@ -299,7 +299,7 @@ def plot_ivs(names, correct_offset=True, voltage_win=[-24, 24]*a.ur.V):
             fig, ax = plt.subplots()
             for name, label in zip(names_, labels):
                 dh.load(name)
-                ax = dh.plot(ax, correct_offset=True, x_win=voltage_win)
+                ax = dh.plot(ax, correct_offset=True, x_win=bias_win)
             ax.set_title(f"IV ({key.replace('_', ' ')}, {dh.prop['temperature']})")
             plt.legend()
             res_image = os.path.join(
