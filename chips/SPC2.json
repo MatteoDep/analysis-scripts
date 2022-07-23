@@ -1,5 +1,4 @@
 {
-    "name": "SPC2",
     "layout": [
         { "type": "contact", "width": 10 },
         { "type": "spacing", "width": 22.5 },

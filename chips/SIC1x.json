@@ -1,5 +1,4 @@
 {
-    "name": "SKC7",
     "layout": [
         { "type": "contact", "width": 100 },
         { "type": "spacing", "width": 40 },

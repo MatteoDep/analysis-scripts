@@ -20,7 +20,7 @@ rcParams.update({'figure.autolayout': True})
 
 ur = pint.UnitRegistry()
 ur.setup_matplotlib()
-ur.default_format = ".2f~P"
+ur.default_format = ".3g~P"
 
 NUM_FIBERS = 60
 FIBER_RADIUS = (25 * ur.nanometer).plus_minus(3)
@@ -38,19 +38,30 @@ DEFAULT_UNITS = {
 }
 
 
+# HIGHER LEVEL FUNCTIONS
+
 # HANDLE DATA
 
 class DataHandler:
     """
     Loads data and builds quantities arrays.
     """
+    DEFAULT_OFFSET_MASK_ARGS = {'field_win': [-0.05, 0.05]*ur['V/um'], 'time_win': [0.25, 0.75]}
 
-    def __init__(self, data_dir='data', chips_dir='chips'):
+    def __init__(self, data_dir='data', chips_dir='chips', offset_mask_args=None):
         self.data_dir = data_dir
         self.chips_dir = chips_dir
+        self.set_offset_mask_args(offset_mask_args)
+
         self.props = {}
         self.cps = {}
+        self.chip = None
         self.name = None
+        self.raws = {}
+        self.raw = None
+        self.length = None
+        self.gate = None
+        self.temperature = None
         pass
 
     def load_chip(self, chip, names=None):
@@ -58,6 +69,7 @@ class DataHandler:
         # extend chip parameters dict
         cp_path = os.path.join(self.chips_dir, chip + '.json')
         self.cps[chip] = ChipParameters(cp_path)
+        self.chip = chip
         # extend properties dict
         props_path = os.path.join(self.data_dir, chip, 'properties.csv')
         df = pd.read_csv(props_path, sep='\t', index_col=0)
@@ -85,69 +97,77 @@ class DataHandler:
         """Read data from files."""
         old_name = self.name
         if name == old_name:
-            return self.data
+            return self.raw
 
         # load data
         self.name = name
         self.chip = self.name.split('_')[0]
         self.prop = self.props[name]
-        self.data = {}
-        path_name = os.path.join(self.data_dir, self.chip, name)
-        if os.path.isfile(path_name + '.xlsx'):
-            df = pd.read_excel(path_name + '.xlsx', skiprows=[5, 6]).T
-            keys = [o.replace('i', 'current').replace('v', 'bias') for o in self.prop['order']] \
-                + ['time', 'temperature']
-            for i, key in enumerate(keys):
-                self.data[key] = ur.Quantity(df[i].to_numpy(), DEFAULT_UNITS[key])
-        elif os.path.isfile(path_name + '.csv'):
-            df = pd.read_csv(path_name + '.csv')
-            old_keys = ['x1', 'y', 'x2', 'temp', 't']
-            keys = [o.replace('i', 'current').replace('v', 'bias') for o in self.prop['order']] \
-                + ['gate', 'temperature', 'time']
-            for old_key, key in zip(old_keys, keys):
-                self.data[key] = ur.Quantity(df[old_key].to_numpy(), DEFAULT_UNITS[key])
+        if name in self.raws:
+            self.raw = self.raws[name]
+        else:
+            self.raw = {}
+            path_name = os.path.join(self.data_dir, self.chip, name)
+            if os.path.isfile(path_name + '.xlsx'):
+                df = pd.read_excel(path_name + '.xlsx', skiprows=[5, 6]).T
+                keys = [o.replace('i', 'current').replace('v', 'bias') for o in self.prop['order']] \
+                    + ['time', 'temperature']
+                for i, key in enumerate(keys):
+                    self.raw[key] = ur.Quantity(df[i].to_numpy(), DEFAULT_UNITS[key])
+            elif os.path.isfile(path_name + '.csv'):
+                df = pd.read_csv(path_name + '.csv')
+                old_keys = ['x1', 'y', 'x2', 'temp', 't']
+                keys = [o.replace('i', 'current').replace('v', 'bias') for o in self.prop['order']] \
+                    + ['gate', 'temperature', 'time']
+                for old_key, key in zip(old_keys, keys):
+                    self.raw[key] = ur.Quantity(df[old_key].to_numpy(), DEFAULT_UNITS[key])
+            else:
+                raise FileNotFoundError(f"Could not load name '{name}'. File does not exist.")
+            self.raws[name] = self.raw
 
         # reset quantities
         if old_name is None or self.props[old_name]['pair'] != self.prop['pair']:
             self.length = None
         self.temperature = None
         self.gate = None
-        return self.data
+        return self.raw
 
-    def get_conductance(self, method='all', time_win=None, bias_win=None, noise_level=None,
-                        correct_offset=None, debug=False):
-        """Calculate conductance."""
-        if correct_offset is None:
-            correct_offset = False if method == 'fit' else True
-
-        # prepare data
-        bias = self.data['bias']
-        current = self.data['current']
-        cond = np.ones(self.data['bias'].shape, dtype=bool)
+    def get_mask(self, field_win=None, time_win=None, bias_win=None):
+        """Generate mask to be applied to data.
+        Note: field_win will compute bias_win = length * field_win.
+        """
+        mask = np.ones(self.raw['bias'].shape, dtype=bool)
         if time_win is not None:
-            cond *= is_between(self.data['time'], time_win)
-        if correct_offset:
-            bias_cond = is_between(bias, [-0.05, 0.05] * ur['V/um'] * self.get_length())
-            current -= np.mean(current[cond * bias_cond])
-        if bias_win is not None:
-            cond *= is_between(self.data['bias'], bias_win)
-        if noise_level is not None:
-            cond *= (np.abs(current) > noise_level)
-
-        # calculate conductance
-        if method == 'fit':
-            coeffs, model = fit_linear(bias[cond], current[cond], debug=debug)
-            conductance = coeffs[0]
-        else:
-            cond *= bias != 0 * ur.V
-            conductance = current / np.where(cond, bias, np.nan)
-            if method == 'average':
-                conductance = average(conductance)
-            elif method == 'all':
-                pass
+            mask *= is_between(self.raw['time'], time_win)
+        if field_win is not None:
+            if bias_win is not None:
+                warnings.warn("argument 'field_win' ignored because 'bias_win' takes precedence.", UserWarning)
             else:
-                raise ValueError(f"Unrecognized method {method}.")
+                if isinstance(field_win, list):
+                    field_win = qlist2qarray(field_win)
+                bias_win = field_win * self.get_length()
+        if bias_win is not None:
+            mask *= is_between(self.raw['bias'], bias_win)
+        return mask
 
+    def set_offset_mask_args(self, offset_mask_args=None):
+        if offset_mask_args is None:
+            self.offset_mask_args = self.DEFAULT_OFFSET_MASK_ARGS
+        else:
+            self.offset_mask_args = offset_mask_args
+
+    def get_conductance(self, correct_offset=False, noise_level=None, **wins):
+        """Calculate conductance."""
+        bias = self.raw['bias']
+        current = self.raw['current']
+        mask = self.get_mask(**wins)
+        if correct_offset:
+            offset_mask = self.get_mask(**self.offset_mask_args)
+            current -= np.mean(current[offset_mask])
+        if noise_level is not None:
+            mask *= np.abs(current) > noise_level
+        mask *= bias != 0*ur.V
+        conductance = current / np.where(mask, bias, np.nan)
         return conductance.to(DEFAULT_UNITS['conductance'])
 
     def get_resistance(self, **kwargs):
@@ -155,12 +175,12 @@ class DataHandler:
 
     def get_temperature(self):
         if self.temperature is None:
-            self.temperature = average(self.data['temperature'])
+            self.temperature = average(self.raw['temperature'])
         return self.temperature
 
     def get_gate(self):
         if self.gate is None:
-            self.gate = average(self.data['gate'])
+            self.gate = average(self.raw['gate'])
         return self.gate
 
     def get_length(self):
@@ -168,29 +188,24 @@ class DataHandler:
             self.length = self.cps[self.chip].get_distance(self.prop['pair'])
         return self.length
 
-    def plot(self, ax, mode='i/v', correct_offset=False, x_win=None, y_win=None, label=r'{prop[temperature]}',
-             color=None, markersize=5, set_xy_label=True):
-        ykey, xkey = [
-            c.replace('vg', 'gate').replace('v', 'bias').replace('i', 'current') if c != 't' else 'time'
-            for c in mode.lower().split('/')
-        ]
-        x = self.data[xkey]
-        y = self.data[ykey]
-        label = label.replace('{', '{0.').format(self)
+    def plot(self, ax, mode='i/v', correct_offset=False, label=None,
+             color=None, markersize=5, set_xy_label=True, **wins):
+        mode_chars = ['t', 'v', 'vg', 'i']
+        to_key = ['time', 'bias', 'gate', 'current']
+        to_sym = ['t', 'V', 'V_G', 'I']
+        ykey, xkey = [to_key[mode_chars.index(c)] for c in mode.lower().split('/')]
+        x = self.raw[xkey]
+        y = self.raw[ykey]
+        if label is not None:
+            label = label.replace('{', '{0.').format(self)
 
         # correct data
         if correct_offset:
             y -= np.mean(y)
-        cond = np.ones(x.shape, dtype=bool)
-        if x_win is not None:
-            cond *= is_between(x, x_win)
-        if y_win is not None:
-            cond *= is_between(y, y_win)
-        ax.scatter(x[cond], y[cond], label=label, c=color, s=markersize, edgecolors=None)
+        mask = self.get_mask(**wins)
+        ax.scatter(x[mask], y[mask], label=label, c=color, s=markersize, edgecolors=None)
         if set_xy_label:
-            ysym, xsym = [
-                c.upper() if c in 'iv' else c for c in mode.split('/')
-            ]
+            ysym, xsym = [to_sym[mode_chars.index(c)] for c in mode.lower().split('/')]
             ax.set_xlabel(f"${xsym}$ [${x.units}$]")
             ax.set_ylabel(f"${ysym}$ [${y.units}$]")
         return ax
@@ -214,102 +229,34 @@ class DataHandler:
 class ChipParameters():
     """Define chip parameters."""
 
-    def __init__(self, config=None):
-        """
-        Create object and load configuration.
+    def __init__(self, config_path=None):
+        if config_path is not None:
+            self.load(config_path)
 
-        :param config: configuration toml file or dictionary.
-        """
-        # default values
-        self.sigma = 0.1 * ur.micrometer
-        self.name = None
-        self.layout = None
-
-        if config is not None:
-            self.load(config)
-
-    def set(self, parameter, value):
-        """Set parameter to value."""
-        setattr(self, parameter, value)
-
-    def load(self, config):
+    def load(self, config_path):
         """
         Set attributes from configuration dictionary.
 
-        :param config: configuration toml file or dictionary.
+        :param config_path: path to json configuration file.
         """
-        if isinstance(config, str):
-            config = json.load(open(config))
-        for attr_name, attr_value in config.items():
-            self.set(attr_name, attr_value)
+        config = json.load(open(config_path))
 
-    def dump(self, path=None):
-        """Dump configs to a dict."""
-        config_dict = {
-            a: getattr(self, a) for a in sorted(dir(self))
-            if not a.startswith("__") and not callable(getattr(self, a))
-        }
-        if path is not None:
-            with open(path, 'w') as f:
-                json.dump(config_dict, f)
-        return config_dict
-
-    def display(self):
-        """Display Configuration values."""
-        print("\nConfigurations:")
-        for key, val in self.dump().items():
-            print(f"{key:30} {val}")
-        print("\n")
-
-    def get_distance(self, segment):
-        """Get distance between 2 contacts."""
-        if isinstance(segment, str):
-            segment = self.pair_to_segment(segment)
-        pad1 = np.amin(segment)
-        pad2 = np.amax(segment)
-
+        self.positions = {}
         count = 0
         x = 0
-        x1 = None
-        x2 = None
-        for item in self.layout:
+        for item in config['layout']:
             if item['type'] == "contact":
                 count += 1
-            # do not change the order of the if statements below
-            if count == pad2:
-                x2 = ((x + item['width'] / 2) * ur.um).plus_minus(item['width'] / np.sqrt(12))
-                break
-            if count == pad1 and x1 is None:
-                x1 = ((x + item['width'] / 2) * ur.um).plus_minus(item['width'] / np.sqrt(12))
+                self.positions[f'P{count}'] = ((x + item['width'] / 2) * ur.um).plus_minus(item['width'] / np.sqrt(12))
             x += item['width']
 
-        return x2 - x1
-
-    @staticmethod
-    def segment_to_pair(segment):
-        return '-'.join([f"P{n}" for n in segment])
-
-    @staticmethod
-    def pair_to_segment(pair):
-        return [int(x) for x in pair.replace('P', '').split('-')]
+    def get_distance(self, pair):
+        """Get distance between 2 cojtacts."""
+        k1, k2 = pair.split('-')
+        return np.abs(self.positions[k2] - self.positions[k1])
 
 
 # MEASUREMENTS HELP FUNCTIONS
-
-def measurement_is_equal(x, y):
-    """Compare 2 independent measurements."""
-    x_, dx, _ = separate_measurement(x)
-    y_, dy, _ = separate_measurement(y)
-    return (x_ == y_) * (dx == dy)
-
-
-def measurement_is_present(x, arr):
-    """Check if x is present in arr."""
-    for y in arr:
-        if measurement_is_equal(x, y):
-            return True
-    return False
-
 
 def separate_measurement(x):
     """Get parameters to feed ODR from Quantities."""
@@ -321,6 +268,16 @@ def separate_measurement(x):
     elif (dx == 0).all():
         dx = None
     return x_, dx, x.units
+
+
+def qlist2qarray(qlist):
+    """Change a list of quantities to a quantity array."""
+    ux = qlist[0].units
+    mlist = []
+    for x in qlist:
+        assert x.units == ux, 'Inconsistent units in quantity list.'
+        mlist.append(x.magnitude)
+    return mlist * ux
 
 
 def isnan(x):
@@ -364,62 +321,56 @@ def average(x, ignore_err=False, already_separated=False, check_nan=True, debug=
 
 
 def fit_powerlaw(x, y, offset=None, **kwargs):
-    """Calculate 1D exponential fit (y = exp(a*x + b) + offset)."""
-    if offset is not None:
-        y1 = y - offset
-    else:
-        y1 = y
+    """Calculate 1D exponential fit (y = x^a * exp(b) + offset)."""
     x_, dx, ux = separate_measurement(x)
-    y1_, dy1, uy1 = separate_measurement(y1)
+    y_, dy, uy = separate_measurement(y)
+    if offset is None:
+        offset = 0
+    else:
+        offset = separate_measurement(offset)[0]
+    y_ -= offset
 
     # apply log
-    cond = (x_ > 0) * (y1_ > 0)
+    cond = (x_ >= 0) * (y_ > 0)
     dx = dx[cond] / x_[cond] if dx is not None else None
     x_ = np.log(x_[cond])
     ux = ur.dimensionless
-    dy1 = dy1[cond] / y1_[cond] if dy1 is not None else None
-    y1_ = np.log(y1_[cond])
-    uy1 = ur.dimensionless
+    dy = dy[cond] / y_[cond] if dy is not None else None
+    y_ = np.log(y_[cond])
+    uy = ur.dimensionless
 
-    coeffs, _ = fit_linear((x_, dx, ux), (y1_, dy1, uy1), already_separated=True, **kwargs)
+    coeffs, _ = fit_linear((x_, dx, ux), (y_, dy, uy), already_separated=True, **kwargs)
     if coeffs is None:
         return None, None
 
     p = [separate_measurement(c)[0] for c in coeffs]
-    if offset is None:
-        offset = 0
-    else:
-        offset, _, _ = separate_measurement(offset)
 
-    return coeffs, lambda x, p=p, offset=offset: np.exp(p[1]) * x ** p[0] + offset
+    return coeffs, lambda x, p=p, offset=offset: (np.where(x >= 0, x, np.nan) ** p[0]) * np.exp(p[1]) + offset
 
 
 def fit_exponential(x, y, offset=None, **kwargs):
     """Calculate 1D exponential fit (y = exp(a*x + b) + offset)."""
-    if offset is not None:
-        y1 = y - offset
-    else:
-        y1 = y
     x_, dx, ux = separate_measurement(x)
-    y1_, dy1, uy1 = separate_measurement(y1)
+    y_, dy, uy = separate_measurement(y)
+    if offset is None:
+        offset = 0
+    else:
+        offset = separate_measurement(offset)[0]
+    y_ -= offset
 
     # apply log
-    cond = (y1_ > 0)
+    cond = (y_ > 0)
     dx = dx[cond] if dx is not None else None
     x_ = x_[cond]
-    dy1 = dy1[cond] / y1_[cond] if dy1 is not None else None
-    y1_ = np.log(y1_[cond])
-    uy1 = ur.dimensionless
+    dy = dy[cond] / y_[cond] if dy is not None else None
+    y_ = np.log(y_[cond])
+    uy = ur.dimensionless
 
-    coeffs, _ = fit_linear((x_, dx, ux), (y1_, dy1, uy1), already_separated=True, **kwargs)
+    coeffs, _ = fit_linear((x_, dx, ux), (y_, dy, uy), already_separated=True, **kwargs)
     if coeffs is None:
         return None, None
 
     p = [separate_measurement(c)[0] for c in coeffs]
-    if offset is None:
-        offset = 0
-    else:
-        offset, _, _ = separate_measurement(offset)
 
     return coeffs, lambda x, p=p, offset=offset: np.exp(p[0] * x + p[1]) + offset
 
@@ -479,6 +430,14 @@ def include_origin(ax, axis='xy'):
 
 
 def is_between(x, win):
-    if not hasattr(win[0], 'units'):
-        win = np.array(win) * np.amax(x)
-    return np.logical_and(x > win[0], x < win[1])
+    t_low, t_high = win
+    mask = np.ones(x.shape, dtype=bool)
+    if t_low is not None:
+        if not hasattr(t_low, 'units'):
+            t_low *= np.amax(x)
+        mask *= x > t_low
+    if t_high is not None:
+        if not hasattr(t_high, 'units'):
+            t_high *= np.amax(x)
+        mask *= x < t_high
+    return mask

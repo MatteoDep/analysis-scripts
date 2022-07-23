@@ -1,5 +1,4 @@
 {
-    "name": "SJC9",
     "layout": [
         { "type": "contact", "width": 30 },
         { "type": "spacing", "width": 22.5 },
