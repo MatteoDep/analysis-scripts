@@ -7,12 +7,11 @@ Analize gate dependence.
 
 import os
 import numpy as np
-from matplotlib.colors import Normalize
-from matplotlib import ticker
 from matplotlib import pyplot as plt
 
 from analysis import ur
 import analysis as a
+from data_plotter import get_cbar_and_cols
 
 
 EXPERIMENT = os.path.splitext(os.path.basename(__file__))[0]
@@ -101,10 +100,8 @@ def main(data_dict, noise_level=0.5*ur.pA):
                 x = gate
                 x_, dx, ux = a.separate_measurement(x)
                 fig, ax = plt.subplots(figsize=(12, 9))
-                norm = Normalize(vmin=0, vmax=np.amax(fields_.magnitude))
-                sm = plt.cm.ScalarMappable(norm=norm, cmap='viridis')
-                cols = plt.cm.viridis(norm(fields_.magnitude))
-                for i, field in enumerate(fields_):
+                cbar, cols = get_cbar_and_cols(fig, fields_, vmin=0)
+                for i, _ in enumerate(fields_):
                     y = conductance[i]
                     y_, dy, uy = a.separate_measurement(y)
                     for d, (j0, j1) in zip(directions, ranges):
@@ -120,12 +117,9 @@ def main(data_dict, noise_level=0.5*ur.pA):
                 ax.set_xlabel(fr"$V_G$ [${ux:~L}$]")
                 ax.set_ylabel(fr"$G$ [${uy:~L}$]")
                 ax.set_yscale('log')
-                cbar = fig.colorbar(sm)
-                cbar.ax.set_ylabel(f"$E_{{bias}}$ [${fields_.units:~L}$]")
-                cbar.ax.yaxis.set_major_locator(ticker.FixedLocator((fields_.magnitude)))
-                cbar.ax.yaxis.set_major_formatter(ticker.FixedFormatter(([str(f) for f in fields_])))
+                cbar.ax.set_ylabel("$E_{{bias}}$")
                 res_image = os.path.join(res_dir, f"{chip}_{pair}_{temp_key}_gate_dep.png")
-                fig.savefig(res_image, dpi=300)
+                fig.savefig(res_image, dpi=100)
                 plt.close()
 
 

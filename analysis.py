@@ -9,6 +9,7 @@ import json
 import os
 import numpy as np
 import pandas as pd
+from scipy.optimize import curve_fit
 from matplotlib import pyplot as plt
 from matplotlib import rcParams
 from uncertainties import unumpy as unp
@@ -60,8 +61,6 @@ class DataHandler:
         self.raws = {}
         self.raw = None
         self.length = None
-        self.gate = None
-        self.temperature = None
         pass
 
     def load_chip(self, chip, names=None):
@@ -128,11 +127,9 @@ class DataHandler:
         # reset quantities
         if old_name is None or self.props[old_name]['pair'] != self.prop['pair']:
             self.length = None
-        self.temperature = None
-        self.gate = None
         return self.raw
 
-    def get_mask(self, field_win=None, time_win=None, bias_win=None):
+    def get_mask(self, field_win=None, time_win=None, bias_win=None, current_win=None):
         """Generate mask to be applied to data.
         Note: field_win will compute bias_win = length * field_win.
         """
@@ -148,6 +145,8 @@ class DataHandler:
                 bias_win = field_win * self.get_length()
         if bias_win is not None:
             mask *= is_between(self.raw['bias'], bias_win)
+        if current_win is not None:
+            mask *= is_between(self.raw['current'], current_win)
         return mask
 
     def set_offset_mask_args(self, offset_mask_args=None):
@@ -174,14 +173,10 @@ class DataHandler:
         return (1 / self.get_conductance(**kwargs)).to(DEFAULT_UNITS['resistance'])
 
     def get_temperature(self):
-        if self.temperature is None:
-            self.temperature = average(self.raw['temperature'])
-        return self.temperature
+        return average(self.raw['temperature'])
 
     def get_gate(self):
-        if self.gate is None:
-            self.gate = average(self.raw['gate'])
-        return self.gate
+        return average(self.raw['gate'])
 
     def get_length(self):
         if self.length is None:
@@ -268,6 +263,11 @@ def separate_measurement(x):
     elif (dx == 0).all():
         dx = None
     return x_, dx, x.units
+
+
+def strip_err(x):
+    x_, _, ux = separate_measurement(x)
+    return x_ * ux
 
 
 def qlist2qarray(qlist):
@@ -406,7 +406,7 @@ def fit_linear(x, y, ignore_err=False, already_separated=False, check_nan=True, 
 
     # build result as physical quantities
     units = [uy/ux, uy]
-    coeffs = [(p[i] * units[i]).plus_minus(dp[i]) for i in range(2)]
+    coeffs = [(p_ * up).plus_minus(dp_) for p_, dp_, up in zip(p, dp, units)]
 
     if debug:
         plt.figure()
@@ -415,6 +415,39 @@ def fit_linear(x, y, ignore_err=False, already_separated=False, check_nan=True, 
         plt.show()
 
     return coeffs, lambda x, p=p: p[0]*x + p[1]
+
+
+def fit_generic(x, y, f, units, already_separated=False, ignore_err=False, check_nan=True, debug=False, **kwargs):
+    """Fit curve defined by `f`."""
+    if already_separated:
+        x_, dx, ux = x
+        y_, dy, uy = y
+    else:
+        x_, dx, ux = separate_measurement(x)
+        y_, dy, uy = separate_measurement(y)
+    if ignore_err:
+        dx = None
+        dy = None
+    if dy is not None:
+        cond = dy == 0
+        dy[cond] = np.nanmin(dy[np.where(cond, False, True)])/2
+    if check_nan:
+        x_, dx, y_, dy = strip_nan(x_, dx, y_, dy)
+
+    p, pcov = curve_fit(f, x_, y_, sigma=dy, **kwargs)
+
+    dp = np.sqrt(np.diag(pcov))
+
+    # build result as physical quantities
+    coeffs = [(p_ * up).plus_minus(dp_) for p_, dp_, up in zip(p, dp, units)]
+
+    if debug:
+        plt.figure()
+        plt.errorbar(x_, y_, xerr=dx, yerr=dy, fmt='o')
+        plt.plot(x_, f(x_, *p))
+        plt.show()
+
+    return coeffs, lambda x, p=p: f(x, *p)
 
 
 # OTHER HELP FUNCTIONS

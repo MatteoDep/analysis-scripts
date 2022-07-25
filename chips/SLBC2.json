@@ -1,0 +1,9 @@
+{
+    "layout": [
+        { "type": "contact", "width": 50 },
+        { "type": "spacing", "width": 100 },
+        { "type": "contact", "width": 50 },
+        { "type": "spacing", "width": 100 },
+        { "type": "contact", "width": 50 }
+    ]
+}
