@@ -37,7 +37,7 @@ def main():
         if show:
             plt.show()
         if save:
-            fig.savefig(res_paths[i], dpi=300)
+            fig.savefig(res_paths[i], dpi=100)
 
 
 # OTHER FUNCIONS
@@ -60,7 +60,7 @@ def plot_iv_with_inset(dh, res_dir):
     )
     with warnings.catch_warnings():
         warnings.simplefilter('ignore', category=UserWarning)
-        fig.savefig(res_image, dpi=300)
+        fig.savefig(res_image, dpi=100)
     plt.close()
 
 
@@ -72,17 +72,27 @@ def get_cbar_and_cols(fig, values, log=False, ticks=None, **kwargs):
     sm = plt.cm.ScalarMappable(norm=norm, cmap='viridis')
     cols = plt.cm.viridis(norm(values_))
     cbar = fig.colorbar(sm)
-    if log:
-        cbar.ax.set_yscale('log')
     if ticks is None:
         ticks = values_
     else:
-        ticks, _, units = a.separate_measurement(ticks)[0]
-    if units is None:
-        units = 1
-    cbar.ax.yaxis.set_major_locator(ticker.FixedLocator((ticks)))
+        ticks, _, units = a.separate_measurement(ticks)
+    if log:
+        # cbar.ax.set_yscale('log')
+        cbar.ax.yaxis.set_major_locator(ticker.FixedLocator((np.log(ticks))))
+    else:
+        cbar.ax.yaxis.set_major_locator(ticker.FixedLocator((ticks)))
     cbar.ax.yaxis.set_major_formatter(ticker.FixedFormatter(([str(f*units) for f in ticks])))
     return cbar, cols
+
+
+def include_origin(ax, axis='xy'):
+    """Fix limits to include origin."""
+    for a in axis:
+        lim = getattr(ax, f"get_{a}lim")()
+        d = np.diff(lim)[0] / 20
+        lim = [min(lim[0], -d), max(lim[1], d)]
+        getattr(ax, f"set_{a}lim")(lim)
+    return ax
 
 
 if __name__ == "__main__":

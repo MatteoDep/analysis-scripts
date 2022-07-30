@@ -6,11 +6,14 @@ Analize temperature dependence.
 
 
 import os
+import time
 import numpy as np
 from matplotlib import pyplot as plt
-from scipy.special import gamma as sp_gamma
+from matplotlib.widgets import Slider, Button
+from scipy.special import gamma
+import pandas as pd
 
-from analysis import ur
+from analysis import ur, fmt
 import analysis as a
 from data_plotter import plot_iv_with_inset, get_cbar_and_cols
 
@@ -55,6 +58,16 @@ def main(data_dict, noise_level=1*ur.pA, plot_iv=False):
     fields = np.concatenate([[0.02], np.arange(0.05, 2, 0.05)]) * ur['V/um']
     delta_field = 0.01 * ur['V/um']
     dh = a.DataHandler()
+    df = pd.DataFrame({
+        'chip': [],
+        'pair': [],
+        'ns': [],
+        'i0': [],
+        'alpha0': [],
+        'alpha1': [],
+        'alpha2': [],
+    })
+
     for chip in data_dict:
         dh.load_chip(chip)
         res_dir = os.path.join('results', EXPERIMENT, chip)
@@ -63,18 +76,10 @@ def main(data_dict, noise_level=1*ur.pA, plot_iv=False):
             nums = data_dict[chip][pair]['nums']
             names = np.array([f"{chip}_{i}" for i in nums])
             names = names[np.argsort(ur.Quantity.from_list([dh.props[name]['temperature'] for name in names]))]
-            if 'lowtemp_lowbias_num' in data_dict[chip][pair]:
-                lowtemp_lowbias_name = f"{chip}_{data_dict[chip][pair]['lowtemp_lowbias_num']}"
-            else:
-                lowtemp_lowbias_name = names[0]
-            if 'lowtemp_highbias_num' in data_dict[chip][pair]:
-                lowtemp_highbias_name = f"{chip}_{data_dict[chip][pair]['lowtemp_highbias_num']}"
-            else:
-                lowtemp_highbias_name = None
 
             dh.load(names[0])
             fields = fields[(fields + delta_field) * dh.get_length() < dh.prop['bias']]
-            print("Chip {}, Pair {} of length {}.".format(chip, pair, dh.get_length()))
+            print("Chip {}, Pair {} of length {}.".format(chip, pair, fmt(dh.get_length())))
 
             if 'noise_level' in data_dict[chip][pair]:
                 nl = data_dict[chip][pair]['noise_level']
@@ -98,20 +103,20 @@ def main(data_dict, noise_level=1*ur.pA, plot_iv=False):
             for i, field in enumerate(fields):
                 y = conductance[i]
                 y_, dy, uy = a.separate_measurement(y)
-                ax.errorbar(x_, y_, xerr=dx, yerr=dy, fmt='--o', zorder=i, c=cols[i], label=fr'$E_b = {field}$')
+                ax.errorbar(x_, y_, xerr=dx, yerr=dy, fmt='--o', zorder=i, c=cols[i], label=fr'$E_b = {fmt(field)}$')
                 if i == 0:
                     coeffs, model = a.fit_exponential(x[mask], y[mask])
                     if coeffs is not None:
                         act_energy = (- coeffs[0] * 100 * ur.k_B).to('meV')
-                        print("Activation energy:", act_energy)
+                        print("Activation energy:", fmt(act_energy))
                         x1 = 100 / temp_win.magnitude
-                        ax.plot(x1, model(x1), c='r', zorder=len(fields), label=fr"$U_A = {act_energy}$")
+                        ax.plot(x1, model(x1), c='r', zorder=len(fields), label=fr"$U_A = {fmt(act_energy)}$")
             ax.legend()
             ax.set_title(f"Conductance ({chip} {pair})")
-            ax.set_xlabel(fr"$\frac{{100}}{{T}}$ [${ux:~L}$]")
-            ax.set_ylabel(fr"$G$ [${uy:~L}$]")
+            ax.set_xlabel(fr"$\frac{{100}}{{T}}$ [${fmt(ux)}$]")
+            ax.set_ylabel(fr"$G$ [${fmt(uy)}$]")
             ax.set_yscale('log')
-            cbar.ax.set_ylabel("$E_{{bias}}$")
+            cbar.ax.set_ylabel("$E_{bias}$")
             res_image = os.path.join(res_dir, f"{chip}_{pair}_temperature_dep.png")
             fig.savefig(res_image, dpi=100)
             plt.close()
@@ -128,87 +133,158 @@ def main(data_dict, noise_level=1*ur.pA, plot_iv=False):
             coeffs, model = a.fit_powerlaw(x, y, check_nan=False)
             if coeffs is not None:
                 alpha0 = coeffs[0]
-                print("alpha0:", alpha0)
+                print("alpha0:", fmt(alpha0))
                 x_, dx, ux = a.separate_measurement(x)
                 y_, dy, uy = a.separate_measurement(y)
                 ax1.errorbar(x_, y_, xerr=dx, yerr=dy, fmt='o', zorder=1, label='data')
-                ax1.plot(x_, model(x_), zorder=2, label=fr'$\alpha = {alpha0}$')
+                ax1.plot(x_, model(x_), zorder=2, label=fr'$\alpha = {fmt(alpha0)}$')
             ax1.set_xscale('log')
             ax1.set_yscale('log')
-            ax1.set_xlabel(fr"$T$ [${ux:~L}$]")
-            ax1.set_ylabel(fr"$G$ [${uy:~L}$]")
+            ax1.set_xlabel(fr"$T$ [${fmt(ux)}$]")
+            ax1.set_ylabel(fr"$G$ [${fmt(uy)}$]")
             ax1.legend()
             # bias dependence at low temperature
-            if lowtemp_lowbias_name is None:
-                lowtemp_lowbias_name = names[0]
-            lowtemp_names = [lowtemp_lowbias_name]
-            if lowtemp_highbias_name is not None:
-                lowtemp_names.append(lowtemp_highbias_name)
-            x, y = [], []
-            for i, name in enumerate(lowtemp_names):
-                dh.load(name)
-                x.append(dh.raw['bias'])
-                y.append(dh.get_conductance(correct_offset=True, time_win=[0.25, 0.75], noise_level=3*nl))
-            x = np.concatenate(x)
-            y = np.concatenate(y)
+            if 'lowtemp_highbias_num' in data_dict[chip][pair]:
+                lowtemp_highbias_name = f"{chip}_{data_dict[chip][pair]['lowtemp_highbias_num']}"
+            else:
+                lowtemp_highbias_name = names[0]
+            dh.load(lowtemp_highbias_name)
+            x = dh.raw['bias']
+            y = dh.get_conductance(correct_offset=True, time_win=[0.25, 0.75], field_win=[0.2, np.inf]*ur['V/um'])
             x, y = a.strip_nan(x, y)
             coeffs, model = a.fit_powerlaw(x, y, check_nan=False)
             alpha1 = coeffs[0]
-            print("alpha1:", alpha1)
+            print("alpha1:", fmt(alpha1))
             x_, dx, ux = a.separate_measurement(x)
             y_, dy, uy = a.separate_measurement(y)
             ax2.errorbar(x_, y_, xerr=dx, yerr=dy, fmt='o', zorder=1)
-            ax2.plot(x_, model(x_), zorder=2, label=fr'$\alpha = {alpha1}$')
+            ax2.plot(x_, model(x_), zorder=2, label=fr'$\alpha = {fmt(alpha1)}$')
             ax2.set_xscale('log')
             ax2.set_yscale('log')
-            ax2.set_xlabel(fr"$V_b$ [${ux:~L}$]")
-            ax2.set_ylabel(fr"$G$ [${uy:~L}$]")
+            ax2.set_xlabel(fr"$V_b$ [${fmt(ux)}$]")
+            ax2.set_ylabel(fr"$G$ [${fmt(uy)}$]")
             ax2.legend()
+            fig.tight_layout()
             res_image = os.path.join(res_dir, f"{chip}_{pair}_power_law.png")
             fig.savefig(res_image, dpi=100)
             plt.close()
 
             # universal scaling curve
-            alpha_ = a.separate_measurement(alpha1)[0] + 1
+            alpha2 = a.separate_measurement(alpha0)[0]
             x, y = [], []
             fig, ax = plt.subplots(figsize=(12, 9))
-            cond = temperature < 150*ur.K
-            cbar, cols = get_cbar_and_cols(fig, a.strip_err(temperature[cond]), log=True, ticks=[10, 15, 30, 60, 100, 150])
+            fig.suptitle('Universal Scaling Curve')
+            cond = temperature < 110*ur.K
+            cbar, cols = get_cbar_and_cols(fig, a.strip_err(temperature[cond]), log=True, ticks=[10, 15, 30, 60, 100])
+            l1 = []
+            temperature = []
+            current = []
             for i, name in enumerate(names[cond]):
                 dh.load(name)
-                mask = dh.get_mask(current_win=[3*nl, None], time_win=[0.25, 0.72])
-                temperature_ = a.strip_err(dh.get_temperature())
-                x.append((ur.e * dh.raw['bias'][mask] / (ur.k_B * temperature_)).to(ur.dimensionless))
-                y.append(dh.raw['current'][mask] / (temperature_ ** (alpha_)))
-                ax.plot(x[i], y[i], '.', c=cols[i])
+                mask = dh.get_mask(current_win=[3*ur.pA, np.inf], time_win=[0.25, 0.75])
+                # temperature_ = a.strip_err(dh.raw['temperature'][mask])
+                temperature_ = dh.raw['temperature'][mask]
+                temperature.append(temperature_.magnitude)
+                x.append((ur.e * dh.raw['bias'][mask] / (2 * np.pi * ur.k_B * temperature_)).to(''))
+                y.append(dh.raw['current'][mask] / (temperature_ ** (1 + alpha2)))
+                current.append(a.separate_measurement(dh.raw['current'][mask])[0])
+                x_, dx, ux = a.separate_measurement(x[i])
+                y_, dy, uy = a.separate_measurement(y[i])
+                l1.append(ax.errorbar(x_, y_, xerr=dx, yerr=dy, fmt='.', zorder=i, c=cols[i])[0])
             x = np.concatenate(x)
             y = np.concatenate(y)
             x_, dx, ux = a.separate_measurement(x)
             y_, dy, uy = a.separate_measurement(y)
 
-            def f(x, gamma, i0):
-                return i0 * np.sinh(gamma * x) * np.abs(sp_gamma((2 + alpha_)/2 + 1j*gamma*x/(np.pi)))**2
-
-            coeffs, model = a.fit_generic(
-                (x_, dx, ux), (y_, dy, uy), f, [ur.dimensionless, ur.A],
-                ignore_err=True, already_separated=True, debug=False,
-                p0=[1e-3, 1]
-            )
-            gamma, i0 = coeffs
-            label = fr'$\gamma={gamma}$, $I_0={i0}$'
-            x_ = np.linspace(np.amin(x_), np.amax(x_), int(1e4))
-            ax.plot(x_, model(x_), c='r', label=label)
-            cbar.ax.set_ylabel(fr"$T$ [${temperature_.units:~L}$]")
+            ax.set_ylim([np.amin(y_) / 3, 3 * np.amax(y_)])
+            cbar.ax.set_ylabel(fr"$T$ [${fmt(ur.K)}$]")
             ax.set_xscale('log')
             ax.set_yscale('log')
-            ax.set_xlabel(r'$\frac{eV}{k_B T}$')
-            ax.set_ylabel(r'$\frac{I}{T^{\beta}}$ ' + f'[${uy:~L}$]')
-            ax.legend()
+            ax.set_xlabel(r'$\frac{eV}{2\pi k_B T}$')
+            ax.set_ylabel(r'$\frac{I}{T^{1+\alpha}}$ ' + f'[${fmt(uy)}$]')
+
+            # Make a horizontal slider to control the frequency.
+            sl_ax = plt.axes([0.2, 0.8, 0.4, 0.03])
+            sl = Slider(sl_ax, r'$\alpha$', valmin=1, valmax=10, valinit=alpha2)
+            bt_ax = plt.axes([0.2, 0.6, 0.15, 0.07])
+            bt = Button(bt_ax, r'Confirm $\alpha$')
+
+            def update(val):
+                y = []
+                for i, l1_ in enumerate(l1):
+                    y.append(current[i] / (temperature[i] ** (1 + val)))
+                    l1_.set_ydata(y[i])
+                    ax.set_ylabel(r'$\frac{I}{T^{1+\alpha}}$ ' + f'[${fmt(ur.A/(ur.T**(1+sl.val)))}$]')
+                y = np.concatenate(y)
+                ax.set_ylim([np.amin(y) / 3, 3 * np.amax(y)])
+                fig.canvas.draw_idle()
+                return [val, y]
+
+            ss = SliderSetter(sl, bt, update)
+            alpha2, y_ = ss.run()
+            print("alpha2:", fmt(alpha2))
+            ax.text(np.amin(x_), np.amax(y_), fr'$\alpha = {fmt(alpha2)}$')
+
+            def f(beta, x):
+                ns, i0 = beta
+                return i0 * np.sinh(np.pi * x / ns) * np.abs(gamma((2 + alpha2)/2 + 1j*x/ns))**2
+
+            ns0 = 9 * a.separate_measurement(dh.get_length())[0]
+            coeffs_units = [ur.dimensionless, ur.A]
+            coeffs, model = a.fit_generic(
+                (x_, None, ux), (y_, None, uy), f, [ns0, ns0*1e-27], coeffs_units,
+                log='', already_separated=True, debug=False,
+            )
+            ns, i0 = coeffs
+            print(f'ns: {fmt(ns)}\ni0: {fmt(i0)}')
+            ax.text(np.amin(x_), np.amax(y_) / 3, fr'$N_{{sites}} = {fmt(ns)}$')
+
+            x_ = np.linspace(np.amin(x_), np.amax(x_), int(1e3))
+            l2, = ax.plot(x_, model(x_), zorder=100, c='r')
+            plt.show()
             res_image = os.path.join(res_dir, f"{chip}_{pair}_universal_scaling.png")
             fig.savefig(res_image, dpi=100)
             plt.close()
 
+            df0 = pd.DataFrame({
+                'chip': [chip],
+                'pair': [dh.prop['pair']],
+                'ns': [fmt(ns)],
+                'i0': [fmt(i0)],
+                'alpha0': [fmt(alpha0)],
+                'alpha1': [fmt(alpha1)],
+                'alpha2': [fmt(alpha2)],
+            })
+            df = pd.concat([df, df0], ignore_index=True)
+
             print()
+    df.to_csv(os.path.join('results', EXPERIMENT, 'params.csv'), index=False)
+    df.to_latex(os.path.join('results', EXPERIMENT, 'params.tex'), index=False)
+
+
+class SliderSetter:
+    """Set value using a slider and a confirmation button."""
+
+    def __init__(self, sl, bt, update_func):
+        self.done = False
+        self.res = None
+        self.sl = sl
+        self.bt = bt
+        self.update_func = update_func
+        self.sl.on_changed(self.update_func)
+        self.bt.on_clicked(self.destroy)
+
+    def destroy(self, event):
+        self.sl.ax.set_visible(False)
+        self.bt.ax.set_visible(False)
+        self.res = self.update_func(self.sl.val)
+        self.done = True
+
+    def run(self):
+        plt.show(block=False)
+        while not self.done:
+            plt.pause(1)
+        return self.res
 
 
 if __name__ == "__main__":
@@ -271,12 +347,12 @@ if __name__ == "__main__":
                 'lowtemp_highbias_num': 366,
             },
         },
-        'SOC3': {
-            "P2-P4": {
-                'nums': np.arange(45, 74),
-                'lowtemp_lowbias_num': 45,
-            },
-        },
+        # 'SOC3': {
+        #     "P2-P4": {
+        #         'nums': np.arange(45, 74),
+        #         'lowtemp_lowbias_num': 45,
+        #     },
+        # },
         'SLBC2': {
             "P2-P3": {
                 'nums': np.concatenate([

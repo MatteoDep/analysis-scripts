@@ -103,7 +103,7 @@ def main(data_dict, noise_level=0.5*ur.pA):
                 ax.set_ylabel(f"$R$ [${uy:~L}$]")
                 plt.tight_layout()
                 res_image = os.path.join(res_dir, f"{temp_key}_{inj}_resistance.png")
-                plt.savefig(res_image)
+                plt.savefig(res_image, dpi=100)
 
             # make compatible
             if '2p' in injs and '4p' in injs:
@@ -132,7 +132,7 @@ def main(data_dict, noise_level=0.5*ur.pA):
                 ax.set_ylabel(f"$R_{{cont}}$ [${uy:~L}$]")
                 plt.tight_layout()
                 res_image = os.path.join(res_dir, f"{temp_key}_contact_resistance.png")
-                plt.savefig(res_image)
+                plt.savefig(res_image, dpi=100)
 
 
 if __name__ == "__main__":

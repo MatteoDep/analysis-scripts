@@ -63,7 +63,7 @@ def capacitance_study(names, bias_win=[-1.5, 1.5]*ur.V):
         ax.set_ylabel(fr"${sym}$ [${uy:~L}$]")
         ax.set_yscale('log')
     res_image = os.path.join(res_dir, "capacitance_study.png")
-    fig.savefig(res_image, dpi=300)
+    fig.savefig(res_image, dpi=100)
     plt.close()
 
 

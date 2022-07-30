@@ -9,15 +9,15 @@ import json
 import os
 import numpy as np
 import pandas as pd
-from scipy.optimize import curve_fit
+# from scipy.optimize import curve_fit
+from scipy.odr import Model, RealData, ODR
 from matplotlib import pyplot as plt
-from matplotlib import rcParams
 from uncertainties import unumpy as unp
 import pint
 import warnings
 
 
-rcParams.update({'figure.autolayout': True})
+plt.rcParams.update({'font.size': 22})
 
 ur = pint.UnitRegistry()
 ur.setup_matplotlib()
@@ -185,24 +185,29 @@ class DataHandler:
 
     def plot(self, ax, mode='i/v', correct_offset=False, label=None,
              color=None, markersize=5, set_xy_label=True, **wins):
-        mode_chars = ['t', 'v', 'vg', 'i']
-        to_key = ['time', 'bias', 'gate', 'current']
-        to_sym = ['t', 'V', 'V_G', 'I']
-        ykey, xkey = [to_key[mode_chars.index(c)] for c in mode.lower().split('/')]
+        key_short_list = ['t', 'v', 'vg', 'i']
+        key_list = ['time', 'bias', 'gate', 'current']
+        sym_list = ['t', 'V', 'V_G', 'I']
+        ykeys, xkey = mode.split('/')
+        xkey = key_list[key_short_list.index(xkey)]
+        ykeys = [key_list[key_short_list.index(ykey)] for ykey in ykeys.split('-')]
         x = self.raw[xkey]
-        y = self.raw[ykey]
         if label is not None:
             label = label.replace('{', '{0.').format(self)
 
-        # correct data
-        if correct_offset:
-            y -= np.mean(y)
-        mask = self.get_mask(**wins)
-        ax.scatter(x[mask], y[mask], label=label, c=color, s=markersize, edgecolors=None)
+        for ykey in ykeys:
+            y = self.raw[ykey]
+            # correct data
+            if correct_offset:
+                y -= np.mean(y)
+            mask = self.get_mask(**wins)
+            ax.scatter(x[mask], y[mask], label=label, c=color, s=markersize, edgecolors=None)
+            if set_xy_label:
+                ysym = sym_list[key_list.indey(ykey)]
+                ax.set_ylabel(f"${ysym}$ [${y.units}$]")
         if set_xy_label:
-            ysym, xsym = [to_sym[mode_chars.index(c)] for c in mode.lower().split('/')]
+            xsym = sym_list[key_list.index(xkey)]
             ax.set_xlabel(f"${xsym}$ [${x.units}$]")
-            ax.set_ylabel(f"${ysym}$ [${y.units}$]")
         return ax
 
     def process(self, names, instruction_dict, per_data_args={}):
@@ -255,14 +260,20 @@ class ChipParameters():
 
 def separate_measurement(x):
     """Get parameters to feed ODR from Quantities."""
-    x_ = unp.nominal_values(x.magnitude)
-    dx = unp.std_devs(x.magnitude)
+    if hasattr(x, 'units'):
+        m = x.magnitude
+        u = x.units
+    else:
+        m = np.asarray(x)
+        u = ur.dimensionless
+    x_ = unp.nominal_values(m)
+    dx = unp.std_devs(m)
     if len(x_.shape) == 0:
         x_ = float(x_)
         dx = float(dx) if dx != 0 else None
     elif (dx == 0).all():
         dx = None
-    return x_, dx, x.units
+    return x_, dx, u
 
 
 def strip_err(x):
@@ -272,11 +283,19 @@ def strip_err(x):
 
 def qlist2qarray(qlist):
     """Change a list of quantities to a quantity array."""
-    ux = qlist[0].units
+    ux = None
     mlist = []
     for x in qlist:
-        assert x.units == ux, 'Inconsistent units in quantity list.'
-        mlist.append(x.magnitude)
+        if x is None:
+            x = np.nan
+        if hasattr(x, 'units'):
+            if ux is not None:
+                assert x.units == ux, 'Inconsistent units in quantity list.'
+            ux = x.units
+            mlist.append(x.magnitude)
+        else:
+            mlist.append(x)
+    assert ux is not None, 'No element of the list was a quantity!'
     return mlist * ux
 
 
@@ -294,6 +313,43 @@ def strip_nan(*args):
     """Strip value if is NaN in any of the arguments."""
     indices = np.sum([isnan(x) for x in args if x is not None], axis=0) == 0
     return [x[indices] if x is not None else None for x in args]
+
+
+def is_between(x, win):
+    t0, t1 = win
+    mask = np.ones(x.shape, dtype=bool)
+    if not hasattr(t0, 'units'):
+        t0 *= np.amax(x)
+    mask *= x > t0
+    if not hasattr(t1, 'units'):
+        t1 *= np.amax(x)
+    mask *= x < t1
+    return mask
+
+
+def fmt(x, latex=False):
+    """Format quantity."""
+    if latex:
+        pint_args = '~L'
+    else:
+        pint_args = '~P'
+
+    def fmt_m(m):
+        try:
+            return '{0:.1uS}'.format(m)
+        except ValueError:
+            return '{0:.3g}'.format(m)
+
+    def fmt_u(u):
+        return ('{0:' + pint_args + '}').format(u)
+
+    if hasattr(x, 'units'):
+        string = ' '.join([fmt_m(x.magnitude), fmt_u(x.units)])
+    elif isinstance(x, pint.Unit):
+        string = fmt_u(x)
+    else:
+        string = fmt_m(x)
+    return string
 
 
 # ANALYSIS
@@ -417,14 +473,14 @@ def fit_linear(x, y, ignore_err=False, already_separated=False, check_nan=True, 
     return coeffs, lambda x, p=p: p[0]*x + p[1]
 
 
-def fit_generic(x, y, f, units, already_separated=False, ignore_err=False, check_nan=True, debug=False, **kwargs):
+def fit_generic(x, y, f, beta0, units, log='', already_separated=False, ignore_err=False, check_nan=True, debug=False, **kwargs):
     """Fit curve defined by `f`."""
     if already_separated:
-        x_, dx, ux = x
-        y_, dy, uy = y
+        x_, dx, _ = x
+        y_, dy, _ = y
     else:
-        x_, dx, ux = separate_measurement(x)
-        y_, dy, uy = separate_measurement(y)
+        x_, dx, _ = separate_measurement(x)
+        y_, dy, _ = separate_measurement(y)
     if ignore_err:
         dx = None
         dy = None
@@ -434,9 +490,32 @@ def fit_generic(x, y, f, units, already_separated=False, ignore_err=False, check
     if check_nan:
         x_, dx, y_, dy = strip_nan(x_, dx, y_, dy)
 
-    p, pcov = curve_fit(f, x_, y_, sigma=dy, **kwargs)
+    # apply log
+    cond = np.ones(x_.shape, bool)
+    if 'x' in log:
+        cond *= (x_ > 0)
+    if 'y' in log:
+        cond *= (x_ > 0)
+    if 'x' in log:
+        dx = dx[cond] / x_[cond] if dx is not None else None
+        x_ = np.log(x_[cond])
+    else:
+        dx = dx[cond] if dx is not None else None
+        x_ = x_[cond]
+    if 'y' in log:
+        dy = dy[cond] / y_[cond] if dy is not None else None
+        y_ = np.log(y_[cond])
+        model = Model(lambda beta, x: np.log(f(beta, x)))
+    else:
+        dy = dy[cond] if dy is not None else None
+        y_ = y_[cond]
+        model = Model(f)
 
-    dp = np.sqrt(np.diag(pcov))
+    data = RealData(x_, y_, sx=dx, sy=dy)
+    odr = ODR(data, model, beta0=beta0, **kwargs)
+    out = odr.run()
+    p = out.beta
+    dp = out.sd_beta
 
     # build result as physical quantities
     coeffs = [(p_ * up).plus_minus(dp_) for p_, dp_, up in zip(p, dp, units)]
@@ -447,30 +526,4 @@ def fit_generic(x, y, f, units, already_separated=False, ignore_err=False, check
         plt.plot(x_, f(x_, *p))
         plt.show()
 
-    return coeffs, lambda x, p=p: f(x, *p)
-
-
-# OTHER HELP FUNCTIONS
-
-def include_origin(ax, axis='xy'):
-    """Fix limits to include origin."""
-    for a in axis:
-        lim = getattr(ax, f"get_{a}lim")()
-        d = np.diff(lim)[0] / 20
-        lim = [min(lim[0], -d), max(lim[1], d)]
-        getattr(ax, f"set_{a}lim")(lim)
-    return ax
-
-
-def is_between(x, win):
-    t_low, t_high = win
-    mask = np.ones(x.shape, dtype=bool)
-    if t_low is not None:
-        if not hasattr(t_low, 'units'):
-            t_low *= np.amax(x)
-        mask *= x > t_low
-    if t_high is not None:
-        if not hasattr(t_high, 'units'):
-            t_high *= np.amax(x)
-        mask *= x < t_high
-    return mask
+    return coeffs, lambda x, p=p: f(p, x)

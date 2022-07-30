@@ -87,7 +87,7 @@ def temp_dependence(names, hb_window=[22, 24]*a.ur.V, lb_window=[-1.5, 1.5]*a.ur
     ax.set_yscale('log')
     plt.legend(loc=(0.38, 0.55))
     res_image = os.path.join(res_dir, "all-temperature_dep.png")
-    fig.savefig(res_image, dpi=300)
+    fig.savefig(res_image, dpi=100)
     plt.close()
 
     fig, ax = plt.subplots()
@@ -109,7 +109,7 @@ def temp_dependence(names, hb_window=[22, 24]*a.ur.V, lb_window=[-1.5, 1.5]*a.ur
     ax.set_yscale('log')
     plt.legend(loc=(0.38, 0.55))
     res_image = os.path.join(res_dir, "all-temperature_dep_dark.png")
-    fig.savefig(res_image, dpi=300)
+    fig.savefig(res_image, dpi=100)
     plt.close()
 
     for key in names:
@@ -126,7 +126,7 @@ def temp_dependence(names, hb_window=[22, 24]*a.ur.V, lb_window=[-1.5, 1.5]*a.ur
         ax.set_yscale('log')
         plt.legend()
         res_image = os.path.join(res_dir, f"{key}-temperature_dep.png")
-        fig.savefig(res_image, dpi=300)
+        fig.savefig(res_image, dpi=100)
         plt.close()
 
         fig, ax = plt.subplots()
@@ -140,7 +140,7 @@ def temp_dependence(names, hb_window=[22, 24]*a.ur.V, lb_window=[-1.5, 1.5]*a.ur
         ax = a.include_origin(ax, axis='x')
         plt.legend()
         res_image = os.path.join(res_dir, f"{key}-temperature_dep_rel.png")
-        fig.savefig(res_image, dpi=300)
+        fig.savefig(res_image, dpi=100)
         plt.close()
 
 
@@ -177,7 +177,7 @@ def time_constant(names, switches):
         ax.set_yscale('log')
         plt.legend()
         res_image = os.path.join(res_dir, f"{key}-tau.png")
-        fig.savefig(res_image, dpi=300)
+        fig.savefig(res_image, dpi=100)
         plt.close()
 
 
@@ -199,7 +199,7 @@ def color_dependence(names, time_window):
         ))
         plt.legend()
         res_image = os.path.join(res_dir, f"{key}-color_dep.png")
-        fig.savefig(res_image, dpi=300)
+        fig.savefig(res_image, dpi=100)
         plt.close()
 
 
@@ -238,7 +238,7 @@ def bias_dependence(names, switches):
         ax = a.include_origin(ax)
         plt.legend()
         res_image = os.path.join(res_dir, f"{key}-bias_dep.png")
-        fig.savefig(res_image, dpi=300)
+        fig.savefig(res_image, dpi=100)
         plt.close()
 
         fig, ax = plt.subplots()
@@ -250,7 +250,7 @@ def bias_dependence(names, switches):
         ax.set_ylabel(r"$G_{light}/G_{dark}$")
         ax = a.include_origin(ax, axis='x')
         res_image = os.path.join(res_dir, f"{key}-bias_dep_rel.png")
-        fig.savefig(res_image, dpi=300)
+        fig.savefig(res_image, dpi=100)
         plt.close()
 
 
@@ -286,7 +286,7 @@ def plot_switches(names, switches):
                     key
                 )
             )
-            fig.savefig(res_image, dpi=300)
+            fig.savefig(res_image, dpi=100)
             plt.close()
 
 
@@ -309,7 +309,7 @@ def plot_ivs(names, correct_offset=True, bias_win=[-24, 24]*a.ur.V):
                     key
                 )
             )
-            fig.savefig(res_image, dpi=300)
+            fig.savefig(res_image, dpi=100)
             plt.close()
 
 
