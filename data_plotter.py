@@ -8,7 +8,6 @@ Plot data together.
 import os
 import numpy as np
 from matplotlib import pyplot as plt
-from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 from matplotlib.colors import Normalize
 from matplotlib import ticker
 import warnings
@@ -18,7 +17,7 @@ from analysis import ur
 
 def main():
     global names, modes, labels, res_names, titles, x_win, y_win
-    global markersize, colors, show, save, correct_offset
+    global colors, show, save, correct_offset
 
     for i, names_ in enumerate(names):
         n_sp = len(modes)
@@ -29,7 +28,7 @@ def main():
             dh.load(name)
             for j, m in enumerate(modes):
                 axs[j] = dh.plot(axs[j], mode=m, label=label, color=color,
-                                 markersize=markersize, x_win=x_win, y_win=y_win)
+                                 x_win=x_win, y_win=y_win)
         if titles is not None:
             fig.suptitle(titles[i])
         if not np.array([label is None for label in labels[i]]).all():
@@ -44,19 +43,15 @@ def main():
 
 def plot_iv_with_inset(dh, res_dir):
     field_win = [-0.05, 0.05] * ur['V/um']
-    bias_win = field_win * dh.get_length()
-    fig, ax1 = plt.subplots(figsize=(12, 9))
-    dh.plot(ax1)
-    ax2 = inset_axes(ax1, width='35%', height='35%', loc=4, borderpad=4)
-    dh.plot(ax2, bias_win=bias_win)
+    fig, ax = plt.subplots(figsize=(12, 9))
+    dh.plot(ax)
+    if dh.prop['temperature'] < 55*ur.K:
+        ax_in = ax.inset_axes([0.65, 0.08, 0.3, 0.3])
+        dh.plot(ax_in, field_win=field_win, set_xy_label=False)
+        ax.indicate_inset_zoom(ax_in)
     fig.suptitle(f"{dh.chip} {dh.prop['pair']} at {dh.prop['temperature']}")
     res_image = os.path.join(
-        res_dir,
-        "{1}_{2}_iv_{0.magnitude}{0.units}.png".format(
-            dh.prop['temperature'],
-            dh.chip,
-            dh.prop['pair']
-        )
+        res_dir, f"{dh.chip}_{dh.prop['pair']}_iv_{a.fmt(dh.prop['temperature']).replace(' ', '')}.png"
     )
     with warnings.catch_warnings():
         warnings.simplefilter('ignore', category=UserWarning)
@@ -87,11 +82,11 @@ def get_cbar_and_cols(fig, values, log=False, ticks=None, **kwargs):
 
 def include_origin(ax, axis='xy'):
     """Fix limits to include origin."""
-    for a in axis:
-        lim = getattr(ax, f"get_{a}lim")()
+    for k in axis:
+        lim = getattr(ax, f"get_{k}lim")()
         d = np.diff(lim)[0] / 20
         lim = [min(lim[0], -d), max(lim[1], d)]
-        getattr(ax, f"set_{a}lim")(lim)
+        getattr(ax, f"set_{k}lim")(lim)
     return ax
 
 
@@ -115,7 +110,6 @@ if __name__ == "__main__":
     res_names = None
     titles = None
     labels = "{name}"
-    markersize = 5
     x_win = None
     y_win = None
     colors = None

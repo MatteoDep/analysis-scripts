@@ -17,10 +17,8 @@ import pint
 import warnings
 
 
-plt.rcParams.update({'font.size': 22})
-
 ur = pint.UnitRegistry()
-ur.setup_matplotlib()
+ur.setup_matplotlib(False)
 ur.default_format = ".3g~P"
 
 NUM_FIBERS = 60
@@ -90,7 +88,7 @@ class DataHandler:
                     self.props[name]['order'] += 'i'
                     self.props[name]['current'] = q
                 else:
-                    raise ValueError(f"Unrecognized units {q.units} of name {name}")
+                    raise ValueError(f"Unrecognized units {q.u} of name {name}")
 
     def load(self, name):
         """Read data from files."""
@@ -107,13 +105,7 @@ class DataHandler:
         else:
             self.raw = {}
             path_name = os.path.join(self.data_dir, self.chip, name)
-            if os.path.isfile(path_name + '.xlsx'):
-                df = pd.read_excel(path_name + '.xlsx', skiprows=[5, 6]).T
-                keys = [o.replace('i', 'current').replace('v', 'bias') for o in self.prop['order']] \
-                    + ['time', 'temperature']
-                for i, key in enumerate(keys):
-                    self.raw[key] = ur.Quantity(df[i].to_numpy(), DEFAULT_UNITS[key])
-            elif os.path.isfile(path_name + '.csv'):
+            if os.path.isfile(path_name + '.csv'):
                 df = pd.read_csv(path_name + '.csv')
                 old_keys = ['x1', 'y', 'x2', 'temp', 't']
                 keys = [o.replace('i', 'current').replace('v', 'bias') for o in self.prop['order']] \
@@ -157,8 +149,8 @@ class DataHandler:
 
     def get_conductance(self, correct_offset=False, noise_level=None, **wins):
         """Calculate conductance."""
-        bias = self.raw['bias']
-        current = self.raw['current']
+        bias = self.raw['bias'].copy()
+        current = self.raw['current'].copy()
         mask = self.get_mask(**wins)
         if correct_offset:
             offset_mask = self.get_mask(**self.offset_mask_args)
@@ -166,7 +158,10 @@ class DataHandler:
         if noise_level is not None:
             mask *= np.abs(current) > noise_level
         mask *= bias != 0*ur.V
-        conductance = current / np.where(mask, bias, np.nan)
+        notmask = np.where(mask, False, True)
+        current[notmask] = np.nan
+        bias[notmask] = np.nan
+        conductance = current / bias
         return conductance.to(DEFAULT_UNITS['conductance'])
 
     def get_resistance(self, **kwargs):
@@ -184,7 +179,7 @@ class DataHandler:
         return self.length
 
     def plot(self, ax, mode='i/v', correct_offset=False, label=None,
-             color=None, markersize=5, set_xy_label=True, **wins):
+             color=None, set_xy_label=True, **wins):
         key_short_list = ['t', 'v', 'vg', 'i']
         key_list = ['time', 'bias', 'gate', 'current']
         sym_list = ['t', 'V', 'V_G', 'I']
@@ -198,16 +193,17 @@ class DataHandler:
         for ykey in ykeys:
             y = self.raw[ykey]
             # correct data
-            if correct_offset:
-                y -= np.mean(y)
+            if correct_offset and ykey == 'current':
+                offset_mask = self.get_mask(**self.offset_mask_args)
+                y -= np.mean(y[offset_mask])
             mask = self.get_mask(**wins)
-            ax.scatter(x[mask], y[mask], label=label, c=color, s=markersize, edgecolors=None)
+            ax.plot(x[mask].m, y[mask].m, '.', label=label, c=color)
             if set_xy_label:
-                ysym = sym_list[key_list.indey(ykey)]
-                ax.set_ylabel(f"${ysym}$ [${y.units}$]")
+                ysym = sym_list[key_list.index(ykey)]
+                ax.set_ylabel(f"${ysym}$" + ulbl(y.u))
         if set_xy_label:
             xsym = sym_list[key_list.index(xkey)]
-            ax.set_xlabel(f"${xsym}$ [${x.units}$]")
+            ax.set_xlabel(f"${xsym}$" + ulbl(x.u))
         return ax
 
     def process(self, names, instruction_dict, per_data_args={}):
@@ -261,8 +257,8 @@ class ChipParameters():
 def separate_measurement(x):
     """Get parameters to feed ODR from Quantities."""
     if hasattr(x, 'units'):
-        m = x.magnitude
-        u = x.units
+        m = x.m
+        u = x.u
     else:
         m = np.asarray(x)
         u = ur.dimensionless
@@ -290,9 +286,9 @@ def qlist2qarray(qlist):
             x = np.nan
         if hasattr(x, 'units'):
             if ux is not None:
-                assert x.units == ux, 'Inconsistent units in quantity list.'
-            ux = x.units
-            mlist.append(x.magnitude)
+                assert x.u == ux, 'Inconsistent units in quantity list.'
+            ux = x.u
+            mlist.append(x.m)
         else:
             mlist.append(x)
     assert ux is not None, 'No element of the list was a quantity!'
@@ -344,12 +340,17 @@ def fmt(x, latex=False):
         return ('{0:' + pint_args + '}').format(u)
 
     if hasattr(x, 'units'):
-        string = ' '.join([fmt_m(x.magnitude), fmt_u(x.units)])
+        string = ' '.join([fmt_m(x.m), fmt_u(x.u)])
     elif isinstance(x, pint.Unit):
         string = fmt_u(x)
     else:
         string = fmt_m(x)
     return string
+
+
+def ulbl(u):
+    """make label for units."""
+    return r'[$' + fmt(u, latex=True) + '$]'
 
 
 # ANALYSIS

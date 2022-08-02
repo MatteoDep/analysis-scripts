@@ -36,7 +36,7 @@ def get_tau(data, time_window, const_estimate_time=5*a.ur.s):
 
     cond = a.is_between(t, [t_start, t_end_decay])
     x = t[cond]
-    y = np.log(sign * (i[cond] - offset).magnitude) * a.ur.dimensionless
+    y = np.log(sign * (i[cond] - offset).m) * a.ur.dimensionless
 
     coeffs, model = a.fit_linear(x, y)
     tau = - 1 / coeffs[0]
@@ -279,7 +279,7 @@ def plot_switches(names, switches):
             plt.legend()
             res_image = os.path.join(
                 res_dir,
-                "{3}-switch{2}_{0.magnitude}{0.units}_{1.magnitude}{1.units}".format(
+                "{3}-switch{2}_{0.m}{0.u}_{1.m}{1.u}".format(
                     dh.prop['bias'],
                     dh.prop['temperature'],
                     f"_{d}" if len(switches[key][i]) == 1 else "",
@@ -304,7 +304,7 @@ def plot_ivs(names, correct_offset=True, bias_win=[-24, 24]*a.ur.V):
             plt.legend()
             res_image = os.path.join(
                 res_dir,
-                "{1}-iv_{0.magnitude}{0.units}".format(
+                "{1}-iv_{0.m}{0.u}".format(
                     dh.prop['temperature'],
                     key
                 )
