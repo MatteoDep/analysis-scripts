@@ -326,18 +326,20 @@ def is_between(x, win):
 def fmt(x, latex=False):
     """Format quantity."""
     if latex:
-        pint_args = '~L'
+        uargs = '~L'
+        larg = 'L'
     else:
-        pint_args = '~P'
+        uargs = '~P'
+        larg = ''
 
     def fmt_m(m):
         try:
-            return '{0:.1uS}'.format(m)
+            return ('{0:.1uS' + larg + '}').format(m)
         except ValueError:
             return '{0:.3g}'.format(m)
 
     def fmt_u(u):
-        return ('{0:' + pint_args + '}').format(u)
+        return ('{0:' + uargs + '}').format(u)
 
     if hasattr(x, 'units'):
         string = ' '.join([fmt_m(x.m), fmt_u(x.u)])
@@ -350,7 +352,7 @@ def fmt(x, latex=False):
 
 def ulbl(u):
     """make label for units."""
-    return r'[$' + fmt(u, latex=True) + '$]'
+    return r' [$' + fmt(u, latex=True) + '$]'
 
 
 # ANALYSIS
@@ -449,7 +451,7 @@ def fit_linear(x, y, ignore_err=False, already_separated=False, check_nan=True, 
     if check_nan:
         x_, dx, y_, dy = strip_nan(x_, dx, y_, dy)
 
-    if len(x_) < 1:
+    if len(x_) < 2:
         warnings.warn('Not enough points for fit.', RuntimeWarning)
         return None, None
 

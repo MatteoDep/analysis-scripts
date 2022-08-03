@@ -60,7 +60,7 @@ def plot_iv_with_inset(dh, res_dir):
 
 
 def get_cbar_and_cols(fig, values, log=False, ticks=None, **kwargs):
-    values_, _, units = a.separate_measurement(values)
+    values_, _, _ = a.separate_measurement(values)
     if log:
         values_ = np.log(values_)
     norm = Normalize(**kwargs)
@@ -70,13 +70,13 @@ def get_cbar_and_cols(fig, values, log=False, ticks=None, **kwargs):
     if ticks is None:
         ticks = values_
     else:
-        ticks, _, units = a.separate_measurement(ticks)
+        ticks, _, _ = a.separate_measurement(ticks)
     if log:
         # cbar.ax.set_yscale('log')
         cbar.ax.yaxis.set_major_locator(ticker.FixedLocator((np.log(ticks))))
     else:
         cbar.ax.yaxis.set_major_locator(ticker.FixedLocator((ticks)))
-    cbar.ax.yaxis.set_major_formatter(ticker.FixedFormatter(([str(f*units) for f in ticks])))
+    cbar.ax.yaxis.set_major_formatter(ticker.FixedFormatter(([a.fmt(f) for f in ticks])))
     return cbar, cols
 
 

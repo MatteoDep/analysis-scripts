@@ -9,7 +9,7 @@ import os
 import numpy as np
 from matplotlib import pyplot as plt
 
-from analysis import ur
+from analysis import ur, fmt, ulbl
 import analysis as a
 from data_plotter import get_cbar_and_cols
 
@@ -21,7 +21,6 @@ def get_gate_dependence(dh, names, fields, delta_field, noise_level=0.5*ur.pA):
     gate = [] * ur.V
     conductance = [[] * ur.S for f in fields]
     for i, name in enumerate(names):
-        print(f"\rProcessing {i+1} of {len(names)}.", end='', flush=True)
         dh.load(name)
         gate_ = dh.get_gate()
         gate = np.append(gate, gate_)
@@ -57,7 +56,7 @@ def main(data_dict, noise_level=0.5*ur.pA):
             nums = data_dict[chip][pair]['nums']
             names = np.array([f"{chip}_{i}" for i in nums])
 
-            print("Chip {}, Pair {} of length {}.".format(chip, pair, dh.cps[chip].get_distance(pair)))
+            print("Chip {}, Pair {} of length {}.".format(chip, pair, fmt(dh.get_length())))
 
             if 'noise_level' in data_dict[chip][pair]:
                 nl = data_dict[chip][pair]['noise_level']
@@ -80,6 +79,10 @@ def main(data_dict, noise_level=0.5*ur.pA):
                 fields_ = fields / fact
                 delta_field_ = delta_field / fact
                 fields_ = fields_[fields_ + delta_field_ < max_field]
+
+                for i, name in enumerate(names):
+                    print(f"\rLoading {i+1} of {len(names)}.", end='', flush=True)
+                    dh.load(name)
 
                 gate, conductance = get_gate_dependence(dh, names, fields_, delta_field_, noise_level=nl)
 
@@ -117,7 +120,7 @@ def main(data_dict, noise_level=0.5*ur.pA):
                 ax.set_xlabel(fr"$V_G$ [${ux:~L}$]")
                 ax.set_ylabel(fr"$G$ [${uy:~L}$]")
                 ax.set_yscale('log')
-                cbar.ax.set_ylabel("$E_{{bias}}$")
+                cbar.ax.set_ylabel("$E_{{bias}}$" + ulbl(fields.u))
                 res_image = os.path.join(res_dir, f"{chip}_{pair}_{temp_key}_gate_dep.png")
                 fig.savefig(res_image, dpi=100)
                 plt.close()
