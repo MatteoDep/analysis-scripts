@@ -17,6 +17,8 @@ import pint
 import warnings
 
 
+plt.style.use('latex')
+
 ur = pint.UnitRegistry()
 ur.setup_matplotlib(False)
 ur.default_format = ".3g~P"
@@ -47,10 +49,9 @@ class DataHandler:
     """
     DEFAULT_OFFSET_MASK_ARGS = {'field_win': [-0.05, 0.05]*ur['V/um'], 'time_win': [0.25, 0.75]}
 
-    def __init__(self, data_dir='data', chips_dir='chips', offset_mask_args=None):
+    def __init__(self, data_dir='data', chips_dir='chips'):
         self.data_dir = data_dir
         self.chips_dir = chips_dir
-        self.set_offset_mask_args(offset_mask_args)
 
         self.props = {}
         self.cps = {}
@@ -141,27 +142,37 @@ class DataHandler:
             mask *= is_between(self.raw['current'], current_win)
         return mask
 
-    def set_offset_mask_args(self, offset_mask_args=None):
-        if offset_mask_args is None:
-            self.offset_mask_args = self.DEFAULT_OFFSET_MASK_ARGS
-        else:
-            self.offset_mask_args = offset_mask_args
-
-    def get_conductance(self, correct_offset=False, noise_level=None, **wins):
-        """Calculate conductance."""
-        bias = self.raw['bias'].copy()
+    def get_current(self, correct_offset=False, noise_level=None, **offset_mask_args):
         current = self.raw['current'].copy()
-        mask = self.get_mask(**wins)
         if correct_offset:
-            offset_mask = self.get_mask(**self.offset_mask_args)
+            if len(offset_mask_args) == 0:
+                offset_mask_args = self.DEFAULT_OFFSET_MASK_ARGS
+            offset_mask = self.get_mask(**offset_mask_args)
             current -= np.mean(current[offset_mask])
         if noise_level is not None:
-            mask *= np.abs(current) > noise_level
+            current[np.abs(current) < noise_level] = np.nan
+        return current
+
+    def get_conductance(self, method='all', **kwargs):
+        """Calculate conductance."""
+        wins = {k: v for k, v in kwargs.items() if k in self.get_mask.__code__.co_varnames}
+        curr_kwargs = {k: v for k, v in kwargs.items() if k in self.get_current.__code__.co_varnames}
+        bias = self.raw['bias'].copy()
+        current = self.get_current(**curr_kwargs)
+        mask = self.get_mask(**wins)
         mask *= bias != 0*ur.V
         notmask = np.where(mask, False, True)
         current[notmask] = np.nan
         bias[notmask] = np.nan
-        conductance = current / bias
+        if method == 'fit':
+            coeffs, _ = fit_linear(bias, current)
+            conductance = coeffs[0]
+        else:
+            conductance = current / bias
+            if method == 'average':
+                conductance = average(conductance)
+            elif method != 'all':
+                raise ValueError(f'Unknown method {method}.')
         return conductance.to(DEFAULT_UNITS['conductance'])
 
     def get_resistance(self, **kwargs):
@@ -261,7 +272,7 @@ def separate_measurement(x):
         u = x.u
     else:
         m = np.asarray(x)
-        u = ur.dimensionless
+        u = ur['']
     x_ = unp.nominal_values(m)
     dx = unp.std_devs(m)
     if len(x_.shape) == 0:
@@ -323,26 +334,36 @@ def is_between(x, win):
     return mask
 
 
-def fmt(x, latex=False):
+def fmt(x, latex=False, sep=' '):
     """Format quantity."""
     if latex:
-        uargs = '~L'
+        uargs = 'Lx'
         larg = 'L'
+        sep = sep.replace(' ', r'\>')
     else:
         uargs = '~P'
         larg = ''
 
     def fmt_m(m):
         try:
-            return ('{0:.1uS' + larg + '}').format(m)
+            res = ('{0:.1uS' + larg + '}').format(m)
         except ValueError:
-            return '{0:.3g}'.format(m)
+            res = '{0:.3g}'.format(m)
+            if latex:
+                res = res.split('e')
+                if len(res) > 1:
+                    res = r'\times 10^{'.join(res) + '}'
+                else:
+                    res = res[0]
+        return res
 
     def fmt_u(u):
-        return ('{0:' + uargs + '}').format(u)
+        if u == ur['']:
+            return ''
+        return ('{0:' + uargs + '}').format(u).replace('_', '')
 
     if hasattr(x, 'units'):
-        string = ' '.join([fmt_m(x.m), fmt_u(x.u)])
+        string = sep.join([fmt_m(x.m), fmt_u(x.u)])
     elif isinstance(x, pint.Unit):
         string = fmt_u(x)
     else:
@@ -393,10 +414,10 @@ def fit_powerlaw(x, y, offset=None, **kwargs):
     cond = (x_ >= 0) * (y_ > 0)
     dx = dx[cond] / x_[cond] if dx is not None else None
     x_ = np.log(x_[cond])
-    ux = ur.dimensionless
+    ux = ur['']
     dy = dy[cond] / y_[cond] if dy is not None else None
     y_ = np.log(y_[cond])
-    uy = ur.dimensionless
+    uy = ur['']
 
     coeffs, _ = fit_linear((x_, dx, ux), (y_, dy, uy), already_separated=True, **kwargs)
     if coeffs is None:
@@ -423,7 +444,7 @@ def fit_exponential(x, y, offset=None, **kwargs):
     x_ = x_[cond]
     dy = dy[cond] / y_[cond] if dy is not None else None
     y_ = np.log(y_[cond])
-    uy = ur.dimensionless
+    uy = ur['']
 
     coeffs, _ = fit_linear((x_, dx, ux), (y_, dy, uy), already_separated=True, **kwargs)
     if coeffs is None:

@@ -25,7 +25,7 @@ def get_gate_dependence(dh, names, fields, delta_field, noise_level=0.5*ur.pA):
         gate_ = dh.get_gate()
         gate = np.append(gate, gate_)
         full_conductance = dh.get_conductance(correct_offset=True, time_win=[0.25, 0.75])
-        full_conductance_denoised = dh.get_conductance(correct_offset=True, time_win=[0.25, 0.75], noise_level=noise_level)
+        full_conductance_denoised = dh.get_conductance(correct_offset=True, noise_level=noise_level, time_win=[0.25, 0.75])
         for j, field in enumerate(fields):
             field_win = [field - delta_field, field + delta_field]
             if dh.prop['bias'] < field_win[1] * dh.get_length():
@@ -37,7 +37,6 @@ def get_gate_dependence(dh, names, fields, delta_field, noise_level=0.5*ur.pA):
                 else:
                     conductance_ = np.nan
             conductance[j] = np.append(conductance[j], conductance_)
-    print()
     return gate, conductance
 
 
@@ -56,6 +55,7 @@ def main(data_dict, noise_level=0.5*ur.pA):
             nums = data_dict[chip][pair]['nums']
             names = np.array([f"{chip}_{i}" for i in nums])
 
+            dh.load(names[0])
             print("Chip {}, Pair {} of length {}.".format(chip, pair, fmt(dh.get_length())))
 
             if 'noise_level' in data_dict[chip][pair]:
@@ -63,15 +63,20 @@ def main(data_dict, noise_level=0.5*ur.pA):
             else:
                 nl = noise_level
 
+            for i, name in enumerate(names):
+                print(f"\rLoading {i+1} of {len(names)}.", end='', flush=True)
+                dh.load(name)
+            print()
+
             names_dict = {}
             for name in names:
-                key = str(dh.props[name]['temperature']).replace(' ', '')
+                key = fmt(dh.props[name]['temperature'], sep='')
                 if key not in names_dict:
                     names_dict[key] = []
                 names_dict[key].append(name)
 
             for temp_key in names_dict:
-                print(f'Temperature {temp_key}:')
+                print(f'Processing temperature {temp_key}')
                 names = names_dict[temp_key]
                 dh.load(names[0])
                 max_field = np.amin(a.qlist2qarray([dh.props[name]['bias'] for name in names])) / dh.get_length()
@@ -79,10 +84,6 @@ def main(data_dict, noise_level=0.5*ur.pA):
                 fields_ = fields / fact
                 delta_field_ = delta_field / fact
                 fields_ = fields_[fields_ + delta_field_ < max_field]
-
-                for i, name in enumerate(names):
-                    print(f"\rLoading {i+1} of {len(names)}.", end='', flush=True)
-                    dh.load(name)
 
                 gate, conductance = get_gate_dependence(dh, names, fields_, delta_field_, noise_level=nl)
 
@@ -103,6 +104,7 @@ def main(data_dict, noise_level=0.5*ur.pA):
                 x = gate
                 x_, dx, ux = a.separate_measurement(x)
                 fig, ax = plt.subplots(figsize=(12, 9))
+                fig.suptitle(f"Conductance ({chip} {pair} {temp_key})")
                 cbar, cols = get_cbar_and_cols(fig, fields_, vmin=0)
                 for i, _ in enumerate(fields_):
                     y = conductance[i]
@@ -112,13 +114,11 @@ def main(data_dict, noise_level=0.5*ur.pA):
                                     yerr=dy[j0:j1] if dx is not None else None,
                                     ls=ls[d], marker=ms[d], zorder=i, c=cols[i])
                 ax.legend(handles=[
-                    plt.Line2D([0], [0], color='k', linestyle=ls[d], marker=ms[d],
-                               label=f"sweep {d}")
+                    plt.Line2D([0], [0], color='k', linestyle=ls[d], marker=ms[d], label=f"sweep {d}")
                     for d in ['up', 'down'] if d in directions
                 ])
-                ax.set_title(f"Conductance ({chip} {pair} {temp_key})")
-                ax.set_xlabel(fr"$V_G$ [${ux:~L}$]")
-                ax.set_ylabel(fr"$G$ [${uy:~L}$]")
+                ax.set_xlabel(r"$V_G$" + ulbl(ux))
+                ax.set_ylabel(r"$G$" + ulbl(uy))
                 ax.set_yscale('log')
                 cbar.ax.set_ylabel("$E_{{bias}}$" + ulbl(fields.u))
                 res_image = os.path.join(res_dir, f"{chip}_{pair}_{temp_key}_gate_dep.png")
@@ -128,36 +128,36 @@ def main(data_dict, noise_level=0.5*ur.pA):
 
 if __name__ == "__main__":
     data_dict = {
-        # 'SPC2': {
-        #     'P16-P17': {
-        #         'nums': np.concatenate([
-        #             np.arange(405, 419),
-        #             np.arange(419, 432),
-        #             np.arange(433, 483),
-        #         ])
-        #     },
-        #     'P13-P14': {
-        #         'nums': np.concatenate([
-        #             np.arange(509, 551),
-        #             np.arange(635, 677),
-        #         ])
-        #     },
-        #     'P2-P4': {
-        #         'nums': np.concatenate([
-        #             # np.arange(551, 572),
-        #             # np.arange(593, 614),
-        #             np.arange(719, 803),
-        #         ])
-        #     },
-        #     'P1-P4': {
-        #         'nums': np.concatenate([
-        #             # np.arange(572, 593),
-        #             # np.arange(614, 635),
-        #             np.arange(677, 719),
-        #             np.arange(804, 846),
-        #         ])
-        #     },
-        # },
+        'SPC2': {
+            'P16-P17': {
+                'nums': np.concatenate([
+                    np.arange(405, 419),
+                    np.arange(419, 432),
+                    np.arange(433, 483),
+                ])
+            },
+            'P13-P14': {
+                'nums': np.concatenate([
+                    np.arange(509, 551),
+                    np.arange(635, 677),
+                ])
+            },
+            'P2-P4': {
+                'nums': np.concatenate([
+                    # np.arange(551, 572),
+                    # np.arange(593, 614),
+                    np.arange(719, 803),
+                ])
+            },
+            'P1-P4': {
+                'nums': np.concatenate([
+                    # np.arange(572, 593),
+                    # np.arange(614, 635),
+                    np.arange(677, 719),
+                    np.arange(804, 846),
+                ])
+            },
+        },
         'SLBC2': {
             'P2-P3': {
                 'nums': np.concatenate([

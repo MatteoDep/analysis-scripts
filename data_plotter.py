@@ -51,7 +51,7 @@ def plot_iv_with_inset(dh, res_dir):
         ax.indicate_inset_zoom(ax_in)
     fig.suptitle(f"{dh.chip} {dh.prop['pair']} at {dh.prop['temperature']}")
     res_image = os.path.join(
-        res_dir, f"{dh.chip}_{dh.prop['pair']}_iv_{a.fmt(dh.prop['temperature']).replace(' ', '')}.png"
+        res_dir, f"{dh.chip}_{dh.prop['pair']}_iv_{a.fmt(dh.prop['temperature'], fmt='')}.png"
     )
     with warnings.catch_warnings():
         warnings.simplefilter('ignore', category=UserWarning)
