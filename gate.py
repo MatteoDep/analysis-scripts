@@ -17,30 +17,31 @@ from data_plotter import get_cbar_and_cols
 EXPERIMENT = os.path.splitext(os.path.basename(__file__))[0]
 
 
-def get_gate_dependence(dh, names, fields, delta_field, noise_level=0.5*ur.pA):
+def get_gate_dependence(dh, names, fields, delta_field):
     gate = [] * ur.V
     conductance = [[] * ur.S for f in fields]
     for i, name in enumerate(names):
         dh.load(name)
-        gate_ = dh.get_gate()
+        gate_ = dh.get_gate(method='average')
         gate = np.append(gate, gate_)
-        full_conductance = dh.get_conductance(correct_offset=True, time_win=[0.25, 0.75])
-        full_conductance_denoised = dh.get_conductance(correct_offset=True, noise_level=noise_level, time_win=[0.25, 0.75])
+        mask_denoise = dh.get_mask(current_win=[0.5*ur.pA, 1])
+        full_conductance = dh.get_conductance()
+        full_conductance_denoised = dh.get_conductance(mask=mask_denoise)
         for j, field in enumerate(fields):
             field_win = [field - delta_field, field + delta_field]
             if dh.prop['bias'] < field_win[1] * dh.get_length():
-                conductance_ = np.nan
+                conductance_i = np.nan
             else:
-                mask = dh.get_mask(field_win=field_win, time_win=[0.25, 0.75])
+                mask = dh.get_mask(field_win=field_win)
                 if np.sum(a.isnan(full_conductance_denoised[mask])) < np.sum(mask):
-                    conductance_ = a.average(full_conductance[mask])
+                    conductance_i = a.average(full_conductance[mask])
                 else:
-                    conductance_ = np.nan
-            conductance[j] = np.append(conductance[j], conductance_)
+                    conductance_i = np.nan
+            conductance[j] = np.append(conductance[j], conductance_i)
     return gate, conductance
 
 
-def main(data_dict, noise_level=0.5*ur.pA):
+def main(data_dict):
     """Main analysis routine.
     names: list
     """
@@ -55,18 +56,8 @@ def main(data_dict, noise_level=0.5*ur.pA):
             nums = data_dict[chip][pair]['nums']
             names = np.array([f"{chip}_{i}" for i in nums])
 
-            dh.load(names[0])
-            print("Chip {}, Pair {} of length {}.".format(chip, pair, fmt(dh.get_length())))
-
-            if 'noise_level' in data_dict[chip][pair]:
-                nl = data_dict[chip][pair]['noise_level']
-            else:
-                nl = noise_level
-
-            for i, name in enumerate(names):
-                print(f"\rLoading {i+1} of {len(names)}.", end='', flush=True)
-                dh.load(name)
-            print()
+            dh.load(names)
+            print(f"Chip {chip}, Pair {pair} of length {fmt(dh.get_length())}.")
 
             names_dict = {}
             for name in names:
@@ -79,13 +70,13 @@ def main(data_dict, noise_level=0.5*ur.pA):
                 print(f'Processing temperature {temp_key}')
                 names = names_dict[temp_key]
                 dh.load(names[0])
-                max_field = np.amin(a.qlist2qarray([dh.props[name]['bias'] for name in names])) / dh.get_length()
+                max_field = np.amin(a.qlist_to_qarray([dh.props[name]['bias'] for name in names])) / dh.get_length()
                 fact = max(a.separate_measurement((fields[4] + delta_field) // max_field)[0] + 1, 1)
                 fields_ = fields / fact
                 delta_field_ = delta_field / fact
                 fields_ = fields_[fields_ + delta_field_ < max_field]
 
-                gate, conductance = get_gate_dependence(dh, names, fields_, delta_field_, noise_level=nl)
+                gate, conductance = get_gate_dependence(dh, names, fields_, delta_field_)
 
                 ranges = []
                 directions = []
@@ -110,7 +101,8 @@ def main(data_dict, noise_level=0.5*ur.pA):
                     y = conductance[i]
                     y_, dy, uy = a.separate_measurement(y)
                     for d, (j0, j1) in zip(directions, ranges):
-                        ax.errorbar(x_[j0:j1], y_[j0:j1], xerr=dx[j0:j1] if dx is not None else None,
+                        ax.errorbar(x_[j0:j1], y_[j0:j1],
+                                    xerr=dx[j0:j1] if dx is not None else None,
                                     yerr=dy[j0:j1] if dx is not None else None,
                                     ls=ls[d], marker=ms[d], zorder=i, c=cols[i])
                 ax.legend(handles=[
@@ -122,7 +114,7 @@ def main(data_dict, noise_level=0.5*ur.pA):
                 ax.set_yscale('log')
                 cbar.ax.set_ylabel("$E_{{bias}}$" + ulbl(fields.u))
                 res_image = os.path.join(res_dir, f"{chip}_{pair}_{temp_key}_gate_dep.png")
-                fig.savefig(res_image, dpi=100)
+                fig.savefig(res_image)
                 plt.close()
 
 
@@ -177,4 +169,4 @@ if __name__ == "__main__":
         },
     }
 
-    main(data_dict, noise_level=0.5 * ur.pA)
+    main(data_dict)

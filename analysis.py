@@ -47,26 +47,37 @@ class DataHandler:
     """
     Loads data and builds quantities arrays.
     """
-    DEFAULT_OFFSET_MASK_ARGS = {'field_win': [-0.05, 0.05]*ur['V/um'], 'time_win': [0.25, 0.75]}
+    PARAMS = {
+        'only_return': True,
+        'correct_offset': True,
+        'offset_mask_args': {'field_win': [-0.05, 0.05]*ur['V/um'], 'only_return': True},
+    }
 
-    def __init__(self, data_dir='data', chips_dir='chips'):
+    def __init__(self, data_dir='data', chips_dir='chips', **params):
         self.data_dir = data_dir
         self.chips_dir = chips_dir
-
+        self.PARAMS.update(params)
         self.props = {}
-        self.cps = {}
+        self.cp_cache = {}
+        self.cp = None
         self.chip = None
+        self.clear()
+        pass
+
+    def clear(self):
         self.name = None
-        self.raws = {}
+        self.cache = {}
         self.raw = None
-        self.length = None
+        self.prop = None
         pass
 
     def load_chip(self, chip, names=None):
-        """Load properties file."""
+        """Load properties file.
+        Note: assumes that names are not shared between different chips."""
         # extend chip parameters dict
         cp_path = os.path.join(self.chips_dir, chip + '.json')
-        self.cps[chip] = ChipParameters(cp_path)
+        self.cp_cache[chip] = ChipParameters(cp_path)
+        self.cp = self.cp_cache[chip]
         self.chip = chip
         # extend properties dict
         props_path = os.path.join(self.data_dir, chip, 'properties.csv')
@@ -93,81 +104,80 @@ class DataHandler:
 
     def load(self, name):
         """Read data from files."""
-        old_name = self.name
-        if name == old_name:
-            return self.raw
-
-        # load data
-        self.name = name
-        self.chip = self.name.split('_')[0]
-        self.prop = self.props[name]
-        if name in self.raws:
-            self.raw = self.raws[name]
+        if not isinstance(name, str):
+            names = name
+            for i, name in enumerate(names):
+                print(f"\rLoading {i+1} of {len(names)}.", end='', flush=True)
+                self.load(name)
+            print()
         else:
-            self.raw = {}
-            path_name = os.path.join(self.data_dir, self.chip, name)
-            if os.path.isfile(path_name + '.csv'):
-                df = pd.read_csv(path_name + '.csv')
-                old_keys = ['x1', 'y', 'x2', 'temp', 't']
-                keys = [o.replace('i', 'current').replace('v', 'bias') for o in self.prop['order']] \
-                    + ['gate', 'temperature', 'time']
-                for old_key, key in zip(old_keys, keys):
-                    self.raw[key] = ur.Quantity(df[old_key].to_numpy(), DEFAULT_UNITS[key])
-            else:
-                raise FileNotFoundError(f"Could not load name '{name}'. File does not exist.")
-            self.raws[name] = self.raw
-
-        # reset quantities
-        if old_name is None or self.props[old_name]['pair'] != self.prop['pair']:
-            self.length = None
+            self.name = name
+            self.prop = self.props[name]
+            if name not in self.cache:
+                self.cache[name] = {}
+                path_name = os.path.join(self.data_dir, self.chip, name)
+                if os.path.isfile(path_name + '.csv'):
+                    df = pd.read_csv(path_name + '.csv')
+                    old_keys = ['x1', 'y', 'x2', 'temp', 't']
+                    keys = [o.replace('i', 'current').replace('v', 'bias') for o in self.prop['order']] \
+                        + ['gate', 'temperature', 'time']
+                    for old_key, key in zip(old_keys, keys):
+                        self.cache[name][key] = ur.Quantity(df[old_key].to_numpy(), DEFAULT_UNITS[key])
+                else:
+                    raise FileNotFoundError(f"Could not load name '{name}'. File does not exist.")
+            self.raw = self.cache[name]
         return self.raw
 
-    def get_mask(self, field_win=None, time_win=None, bias_win=None, current_win=None):
+    def set_default_params(self, **params):
+        self.PARAMS.update(params)
+
+    def get_mask(self, field_win=None, time_win=None, bias_win=None, current_win=None, **params):
         """Generate mask to be applied to data.
         Note: field_win will compute bias_win = length * field_win.
         """
-        mask = np.ones(self.raw['bias'].shape, dtype=bool)
+        params = self._get_tmp_params(**params)
+        mask = np.ones(self.raw['time'].shape, dtype=bool)
         if time_win is not None:
             mask *= is_between(self.raw['time'], time_win)
         if field_win is not None:
             if bias_win is not None:
                 warnings.warn("argument 'field_win' ignored because 'bias_win' takes precedence.", UserWarning)
             else:
-                if isinstance(field_win, list):
-                    field_win = qlist2qarray(field_win)
-                bias_win = field_win * self.get_length()
+                mask *= is_between(self.get_field(), field_win)
         if bias_win is not None:
             mask *= is_between(self.raw['bias'], bias_win)
         if current_win is not None:
-            mask *= is_between(self.raw['current'], current_win)
+            mask *= is_between(self.get_current(**params), current_win)
+        if params['only_return']:
+            direction = np.diff(self.get_bias().m) > 0
+            direction = np.append(direction, direction[0])
+            mask *= direction != direction[0]
         return mask
 
-    def get_current(self, correct_offset=False, noise_level=None, **offset_mask_args):
+    def get_field(self, **kwargs):
+        return self.get_bias(**kwargs) / self.get_length()
+
+    def get_current(self, mask=None, **params):
         current = self.raw['current'].copy()
-        if correct_offset:
-            if len(offset_mask_args) == 0:
-                offset_mask_args = self.DEFAULT_OFFSET_MASK_ARGS
-            offset_mask = self.get_mask(**offset_mask_args)
-            current -= np.mean(current[offset_mask])
-        if noise_level is not None:
-            current[np.abs(current) < noise_level] = np.nan
+        params = self._get_tmp_params(**params)
+        if self.prop['injection'] == '2P':
+            if params['correct_offset']:
+                offset_mask = self.get_mask(**params['offset_mask_args'])
+                current -= np.mean(current[offset_mask])
+        if mask is not None:
+            current = self.apply_mask(current, mask)
         return current
 
-    def get_conductance(self, method='all', **kwargs):
+    def get_conductance(self, method='all', mask=None, **params):
         """Calculate conductance."""
-        wins = {k: v for k, v in kwargs.items() if k in self.get_mask.__code__.co_varnames}
-        curr_kwargs = {k: v for k, v in kwargs.items() if k in self.get_current.__code__.co_varnames}
-        bias = self.raw['bias'].copy()
-        current = self.get_current(**curr_kwargs)
-        mask = self.get_mask(**wins)
-        mask *= bias != 0*ur.V
-        notmask = np.where(mask, False, True)
-        current[notmask] = np.nan
-        bias[notmask] = np.nan
+        bias = self.get_bias()
+        bias = self.apply_mask(bias, bias != 0*ur.V)
         if method == 'fit':
+            current = self.get_current(mask=mask, correct_offset=False)
             coeffs, _ = fit_linear(bias, current)
             conductance = coeffs[0]
         else:
+            current = self.get_current(mask=mask, **params)
             conductance = current / bias
             if method == 'average':
                 conductance = average(conductance)
@@ -178,19 +188,46 @@ class DataHandler:
     def get_resistance(self, **kwargs):
         return (1 / self.get_conductance(**kwargs)).to(DEFAULT_UNITS['resistance'])
 
-    def get_temperature(self):
-        return average(self.raw['temperature'])
+    def get_temperature(self, **kwargs):
+        return self._get_simple('temperature', **kwargs)
 
-    def get_gate(self):
-        return average(self.raw['gate'])
+    def get_bias(self, **kwargs):
+        return self._get_simple('bias', **kwargs)
+
+    def get_time(self, **kwargs):
+        return self._get_simple('time', **kwargs)
+
+    def get_gate(self, **kwargs):
+        return self._get_simple('gate', **kwargs)
+
+    @staticmethod
+    def apply_mask(q, mask):
+        qres = q.copy()
+        notmask = np.where(mask, False, True)
+        qres[notmask] = np.nan
+        return qres
+
+    def _get_simple(self, key, method='all', mask=None):
+        q = self.raw[key]
+        if mask is not None:
+            q = self.apply_mask(q)
+        if method == 'average':
+            q = average(q)
+        elif method != 'all':
+            raise ValueError(f'Unknown method {method}.')
+        return q.to(DEFAULT_UNITS[key])
+
+    def _get_tmp_params(self, **params):
+        for key in self.PARAMS:
+            if key not in params:
+                params[key] = self.PARAMS[key]
+        return params
 
     def get_length(self):
-        if self.length is None:
-            self.length = self.cps[self.chip].get_distance(self.prop['pair'])
-        return self.length
+        return self.cp.get_distance(self.prop['pair'])
 
-    def plot(self, ax, mode='i/v', correct_offset=False, label=None,
-             color=None, set_xy_label=True, **wins):
+    def plot(self, ax, mode='i/v', mask=None, label=None,
+             color=None, set_xy_label=True):
         key_short_list = ['t', 'v', 'vg', 'i']
         key_list = ['time', 'bias', 'gate', 'current']
         sym_list = ['t', 'V', 'V_G', 'I']
@@ -198,17 +235,17 @@ class DataHandler:
         xkey = key_list[key_short_list.index(xkey)]
         ykeys = [key_list[key_short_list.index(ykey)] for ykey in ykeys.split('-')]
         x = self.raw[xkey]
+        if mask is not None:
+            x = x[mask]
         if label is not None:
             label = label.replace('{', '{0.').format(self)
 
         for ykey in ykeys:
             y = self.raw[ykey]
+            if mask is not None:
+                y = y[mask]
             # correct data
-            if correct_offset and ykey == 'current':
-                offset_mask = self.get_mask(**self.offset_mask_args)
-                y -= np.mean(y[offset_mask])
-            mask = self.get_mask(**wins)
-            ax.plot(x[mask].m, y[mask].m, '.', label=label, c=color)
+            ax.plot(x.m, y.m, '.', label=label, c=color)
             if set_xy_label:
                 ysym = sym_list[key_list.index(ykey)]
                 ax.set_ylabel(f"${ysym}$" + ulbl(y.u))
@@ -239,6 +276,7 @@ class ChipParameters():
     def __init__(self, config_path=None):
         if config_path is not None:
             self.load(config_path)
+        self.cache = {}
 
     def load(self, config_path):
         """
@@ -259,8 +297,10 @@ class ChipParameters():
 
     def get_distance(self, pair):
         """Get distance between 2 cojtacts."""
-        k1, k2 = pair.split('-')
-        return np.abs(self.positions[k2] - self.positions[k1])
+        if pair not in self.cache:
+            k1, k2 = pair.split('-')
+            self.cache[pair] = np.abs(self.positions[k2] - self.positions[k1])
+        return self.cache[pair]
 
 
 # MEASUREMENTS HELP FUNCTIONS
@@ -288,12 +328,12 @@ def strip_err(x):
     return x_ * ux
 
 
-def qlist2qarray(qlist):
+def qlist_to_qarray(qlist):
     """Change a list of quantities to a quantity array."""
     ux = None
     mlist = []
     for x in qlist:
-        if x is None:
+        if x is None or isnan(x):
             x = np.nan
         if hasattr(x, 'units'):
             if ux is not None:
@@ -301,9 +341,23 @@ def qlist2qarray(qlist):
             ux = x.u
             mlist.append(x.m)
         else:
-            mlist.append(x)
+            raise ValueError('Quantity list contains non quantity items.')
     assert ux is not None, 'No element of the list was a quantity!'
     return mlist * ux
+
+
+def q_from_df(df, key, units=ur['']):
+    x = []
+    for i, index in enumerate(df.index):
+        x.append(df.loc[index, key] * units)
+        if f'd_{key}' in df:
+            dx = df.loc[index, f'd_{key}']
+            x[i] = x[i].plus_minus(dx)
+    if len(x) == 1:
+        x = x[0]
+    else:
+        x = np.concatenate(x)
+    return x
 
 
 def isnan(x):

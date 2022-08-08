@@ -18,7 +18,6 @@ EXPERIMENT = os.path.splitext(os.path.basename(__file__))[0]
 
 def get_length_dependence(names, field, delta_field):
     global dh, res_dir, plot_ivs
-    time_win = [0.25, 0.75]
     method = 'fit' if field == 0*ur['V/um'] else 'average'
 
     injs = ['2p', '4p']
@@ -30,13 +29,13 @@ def get_length_dependence(names, field, delta_field):
         inj = dh.prop['injection'].lower()
         length[inj] = np.append(length[inj], dh.get_length())
         pair[inj] = np.append(pair[inj], dh.prop['pair'])
-        field_win = [field - delta_field, field + delta_field]
-        resistance0 = dh.get_resistance(method=method, time_win=time_win, field_win=field_win)
+        mask = dh.get_mask([field - delta_field, field + delta_field])
+        resistance0 = dh.get_resistance(method=method, mask=mask)
         resistance[inj] = np.append(resistance[inj], resistance0)
     return length, resistance, pair
 
 
-def main(data_dict, noise_level=0.5*ur.pA, pair_on_axis=False):
+def main(data_dict, pair_on_axis=False):
     """Compute resistance over length characterization."""
     global dh, res_dir
 
@@ -49,11 +48,8 @@ def main(data_dict, noise_level=0.5*ur.pA, pair_on_axis=False):
         nums = data_dict[chip]['nums']
         names = np.array([f"{chip}_{i}" for i in nums])
 
+        dh.load(names)
         print("Chip {}.".format(chip))
-        for i, name in enumerate(names):
-            print(f"\rLoading {i+1} of {len(names)}.", end='', flush=True)
-            dh.load(name)
-        print()
 
         names_dict = {}
         for name in names:
@@ -139,7 +135,7 @@ def main(data_dict, noise_level=0.5*ur.pA, pair_on_axis=False):
                     ax.set_xlabel("Length" + ulbl(ux))
                 ax.set_ylabel("$R_{cont}$" + ulbl(uy))
                 res_image = os.path.join(res_dir, f"{temp_key}_contact_resistance.png")
-                plt.savefig(res_image, dpi=100)
+                plt.savefig(res_image)
 
 
 if __name__ == "__main__":

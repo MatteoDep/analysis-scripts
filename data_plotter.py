@@ -15,48 +15,28 @@ import analysis as a
 from analysis import ur
 
 
-def main():
-    global names, modes, labels, res_names, titles, x_win, y_win
-    global colors, show, save, correct_offset
-
-    for i, names_ in enumerate(names):
-        n_sp = len(modes)
-        fig, axs = plt.subplots(n_sp, 1, figsize=(7, n_sp*4))
-        if n_sp == 1:
-            axs = [axs]
-        for name, label, color in zip(names_, labels[i], colors[i]):
-            dh.load(name)
-            for j, m in enumerate(modes):
-                axs[j] = dh.plot(axs[j], mode=m, label=label, color=color,
-                                 x_win=x_win, y_win=y_win)
-        if titles is not None:
-            fig.suptitle(titles[i])
-        if not np.array([label is None for label in labels[i]]).all():
-            plt.legend()
-        if show:
-            plt.show()
-        if save:
-            fig.savefig(res_paths[i], dpi=100)
-
-
-# OTHER FUNCIONS
-
-def plot_iv_with_inset(dh, res_dir):
-    field_win = [-0.05, 0.05] * ur['V/um']
-    fig, ax = plt.subplots(figsize=(12, 9))
-    dh.plot(ax)
-    if dh.prop['temperature'] < 55*ur.K:
-        ax_in = ax.inset_axes([0.65, 0.08, 0.3, 0.3])
-        dh.plot(ax_in, field_win=field_win, set_xy_label=False)
-        ax.indicate_inset_zoom(ax_in)
-    fig.suptitle(f"{dh.chip} {dh.prop['pair']} at {dh.prop['temperature']}")
-    res_image = os.path.join(
-        res_dir, f"{dh.chip}_{dh.prop['pair']}_iv_{a.fmt(dh.prop['temperature'], fmt='')}.png"
-    )
-    with warnings.catch_warnings():
-        warnings.simplefilter('ignore', category=UserWarning)
-        fig.savefig(res_image, dpi=100)
-    plt.close()
+def plot_iv_with_inset(dh, names, res_dir):
+    for i, name in enumerate(names):
+        print(f"\rPlotting iv {i+1} of {len(names)}.", end='', flush=True)
+        dh.load(name)
+        fig, ax = plt.subplots(figsize=(12, 9))
+        dh.plot(ax)
+        if dh.prop['temperature'] < 55*ur.K:
+            mask = dh.get_mask([-0.05, 0.05] * ur['V/um'])
+            ax_in = ax.inset_axes([0.65, 0.08, 0.3, 0.3])
+            dh.plot(ax_in, mask=mask, set_xy_label=False)
+            ax_in.set_xmargin(0)
+            ax_in.set_ymargin(0)
+            ax.indicate_inset_zoom(ax_in)
+        fig.suptitle(f"{dh.chip} {dh.prop['pair']} at {dh.prop['temperature']}")
+        res_image = os.path.join(
+            res_dir, f"{dh.chip}_{dh.prop['pair']}_iv_{a.fmt(dh.prop['temperature'], sep='')}.png"
+        )
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore', category=UserWarning)
+            fig.savefig(res_image, dpi=100)
+        plt.close()
+    print()
 
 
 def get_cbar_and_cols(fig, values, log=False, ticks=None, **kwargs):
@@ -136,4 +116,21 @@ if __name__ == "__main__":
     if not isinstance(modes, list):
         modes = [modes]
 
-    main()
+    for i, names_ in enumerate(names):
+        n_sp = len(modes)
+        fig, axs = plt.subplots(n_sp, 1, figsize=(7, n_sp*4))
+        if n_sp == 1:
+            axs = [axs]
+        for name, label, color in zip(names_, labels[i], colors[i]):
+            dh.load(name)
+            for j, m in enumerate(modes):
+                axs[j] = dh.plot(axs[j], mode=m, label=label, color=color,
+                                 x_win=x_win, y_win=y_win)
+        if titles is not None:
+            fig.suptitle(titles[i])
+        if not np.array([label is None for label in labels[i]]).all():
+            plt.legend()
+        if show:
+            plt.show()
+        if save:
+            fig.savefig(res_paths[i], dpi=100)
