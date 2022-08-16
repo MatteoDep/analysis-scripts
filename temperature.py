@@ -14,7 +14,7 @@ import pandas as pd
 
 from analysis import ur, fmt, ulbl
 import analysis as a
-from data_plotter import plot_iv_with_inset, get_cbar_and_cols
+import data_plotter as dp
 
 
 EXPERIMENT = os.path.splitext(os.path.basename(__file__))[0]
@@ -49,7 +49,7 @@ def get_temperature_dependence(dh, names, fields, delta_field):
     return temperature, conductance
 
 
-def main(data_dict, adjust_alpha=False, plot_iv=False):
+def full(data_dict, adjust_alpha=False, plot_iv=False):
     """Main analysis routine.
     names: list
     """
@@ -87,8 +87,13 @@ def main(data_dict, adjust_alpha=False, plot_iv=False):
             print(f"Chip {chip}, Pair {pair} of length {fmt(length)}.")
             fields = fields[(fields + delta_field) * length < dh.props[names[0]]['bias']]
 
+            if 'lowtemp_highbias_num' in data_dict[chip][pair]:
+                lowtemp_highbias_name = f"{chip}_{data_dict[chip][pair]['lowtemp_highbias_num']}"
+            else:
+                lowtemp_highbias_name = names[0]
             if plot_iv:
-                plot_iv_with_inset(dh, names, res_dir)
+                dp.plot_iv(dh, names, res_dir, zoom='auto')
+                dp.plot_iv(dh, [lowtemp_highbias_name], res_dir, zoom=False, appendix='_high_bias')
 
             df_index = np.nonzero(np.array((df['chip'] == chip) * (df['pair'] == pair)))[0]
 
@@ -100,19 +105,22 @@ def main(data_dict, adjust_alpha=False, plot_iv=False):
             x_, dx, ux = a.separate_measurement(x)
             fig, ax = plt.subplots()
             fig.suptitle(f"Conductance ({chip} {pair})")
-            cbar, cols = get_cbar_and_cols(fig, fields, vmin=0)
+            cbar, cols = dp.get_cbar_and_cols(fig, fields, vmin=0)
             for i, field in enumerate(fields):
                 y = conductance[i]
+                x_, dx, ux = a.separate_measurement(x)
                 y_, dy, uy = a.separate_measurement(y)
+                x_, y_, dx, dy = a.strip_nan(x_, y_, dx, dy)
                 ax.errorbar(x_, y_, xerr=dx, yerr=dy, fmt='--o', zorder=i, c=cols[i])
                 if i == 0 and np.sum(indices) > 1:
                     coeffs, model = a.fit_exponential(x[indices], y[indices])
                     act_energy = (- coeffs[0] * 100 * ur.k_B).to('meV')
                     act_energy_, dact_energy, _ = a.separate_measurement(act_energy)
                     print("Activation energy:", fmt(act_energy))
-                    ax.plot(x_[indices], model(x_[indices]), c='r', zorder=len(fields), label=fr"fit ($U_A = {fmt(act_energy, latex=True)}$)")
+                    x_model = 100 / np.array([80, 350])
+                    ax.plot(x_model, model(x_model), c='r', zorder=len(fields), label=fr"fit ($U_A = {fmt(act_energy, latex=True)}$)")
             ax.legend()
-            ax.set_xlabel(r"$\frac{{100}}{{T}}$" + ulbl(ux))
+            ax.set_xlabel(r"$100/T$" + ulbl(ux))
             ax.set_ylabel(r"$G$" + ulbl(uy))
             ax.set_yscale('log')
             cbar.ax.set_ylabel("$E_{bias}$" + ulbl(fields.u))
@@ -147,10 +155,6 @@ def main(data_dict, adjust_alpha=False, plot_iv=False):
             ax1.legend()
 
             # power law bias dependence at low temperature
-            if 'lowtemp_highbias_num' in data_dict[chip][pair]:
-                lowtemp_highbias_name = f"{chip}_{data_dict[chip][pair]['lowtemp_highbias_num']}"
-            else:
-                lowtemp_highbias_name = names[0]
             dh.load(lowtemp_highbias_name)
             mask = dh.get_mask(field_win=[0.3*ur['V/um'], 1])
             x = dh.get_bias()
@@ -182,7 +186,7 @@ def main(data_dict, adjust_alpha=False, plot_iv=False):
             indices = np.nonzero(temperature < 110*ur.K)
             alpha2 = alpha0_
             fig, ax = plt.subplots()
-            cbar, cols = get_cbar_and_cols(fig, a.strip_err(temperature[indices]), log=True, ticks=[10, 15, 30, 60, 100])
+            cbar, cols = dp.get_cbar_and_cols(fig, a.strip_err(temperature[indices]), log=True, ticks=[10, 15, 30, 60, 100])
             cbar.ax.set_ylabel(r"$T$" + ulbl(ur.K))
             x, y = [], []
             current = []
@@ -196,22 +200,22 @@ def main(data_dict, adjust_alpha=False, plot_iv=False):
                 current_i = dh.get_current()[mask]
                 temperature.append(temperature_i.m)
                 current.append(current_i.m)
-                x.append((ur.e * bias_i / (2 * np.pi * ur.k_B * temperature_i)).to(''))
+                x.append((ur.e * bias_i / (2 * ur.k_B * temperature_i)).to(''))
                 y.append(current_i / (temperature_i ** (1 + alpha2)))
                 lines.append(ax.plot(x[i].m, y[i].m, '.', zorder=i, c=cols[i])[0])
             x = np.concatenate(x)
             y = np.concatenate(y)
             x_, dx, ux = a.separate_measurement(x)
             y_, dy, uy = a.separate_measurement(y)
-            ax.set_xlabel(r'$\frac{eV}{2\pi k_B T}$')
-            ax.set_ylabel(r'$\frac{I}{T^{1+\alpha}}$ ' + ulbl(uy))
+            ax.set_xlabel(r'$eV/2 k_B T$')
+            ax.set_ylabel(r'$I/T^{1+\alpha}$ ' + ulbl(uy))
             ax.set_xscale('log')
             ax.set_yscale('log')
             ax.set_ylim([np.amin(y_) / 3, 3 * np.amax(y_)])
 
             if adjust_alpha:
                 res_image = os.path.join(res_dir, f"{chip}_{pair}_universal_scaling_adjusted.png")
-                fig.suptitle(r'Universal Scaling Curve (Adjusted $\alpha$)')
+                fig.suptitle(fr'Universal Scaling Curve - Adjusted $\alpha$ ({chip} {pair})')
 
                 def update(val):
                     y_ = []
@@ -220,7 +224,7 @@ def main(data_dict, adjust_alpha=False, plot_iv=False):
                         line.set_ydata(y_[i])
                     y_ = np.concatenate(y_)
                     ax.set_ylim([np.amin(y_) / 3, 3 * np.amax(y_)])
-                    ax.set_ylabel(r'$\frac{I}{T^{1+\alpha}}$ ' + ulbl(ur.A / ur.K ** (1 + val)))
+                    ax.set_ylabel(r'$I/T^{1+\alpha}$ ' + ulbl(ur.A / ur.K ** (1 + val)))
                     fig.canvas.draw_idle()
                     return y_
 
@@ -239,11 +243,11 @@ def main(data_dict, adjust_alpha=False, plot_iv=False):
                 print("alpha2:", fmt(alpha2))
             else:
                 res_image = os.path.join(res_dir, f"{chip}_{pair}_universal_scaling.png")
-                fig.suptitle('Universal Scaling Curve')
+                fig.suptitle(f'Universal Scaling Curve ({chip} {pair})')
 
             def f(beta, x):
                 ns, i0 = beta
-                return i0 * np.sinh(np.pi * x / ns) * np.abs(gamma((2 + alpha2)/2 + 1j*x/ns))**2
+                return i0 * np.sinh(x / ns) * np.abs(gamma((2 + alpha2)/2 + 1j*x/(np.pi*ns)))**2
 
             ns0 = 9 * a.separate_measurement(dh.get_length())[0]
             coeffs_units = [ur[''], ur.A]
@@ -287,6 +291,102 @@ def main(data_dict, adjust_alpha=False, plot_iv=False):
             dh.clear()
             print()
     df.to_csv(csv_path, index=False)
+
+
+def nsites(data_dict, adjust_alpha=False):
+    res_dir = os.path.join('results', EXPERIMENT)
+    title = 'Number of Sites'
+    if adjust_alpha:
+        csv_path = os.path.join(res_dir, 'params_adjusted.csv')
+        res_image = os.path.join(res_dir, "number_of_sites_adjusted.png")
+        title += r' - Adjusted $\alpha$'
+    else:
+        csv_path = os.path.join(res_dir, 'params.csv')
+        res_image = os.path.join(res_dir, "number_of_sites.png")
+    df = pd.read_csv(csv_path)
+
+    fig, ax = plt.subplots()
+    fig.suptitle(title)
+    for chip in data_dict:
+        df0 = df.set_index('chip').loc[chip]
+        x_ = np.array(df0['length'])
+        dx = np.array(df0['d_length'])
+        y_ = np.array(df0['ns'])
+        dy = np.array(df0['d_ns'])
+        ax.errorbar(x_, y_, xerr=dx, yerr=dy, fmt='.', label=chip)
+        if len(x_.shape) > 0:
+            _, model = a.fit_linear((x_, dx, ur.um), (y_, dy, ur['']), already_separated=True)
+            x_model = np.array([0, np.amax(x_)*1.1])
+            ax.plot(x_model, model(x_model), c='r')
+    ax.set_xlabel('Length' + ulbl(ur.um))
+    ax.set_ylabel(r'$N_{sites}$')
+    ax.legend()
+    fig.savefig(res_image)
+    plt.close()
+
+    df_latex = df.loc[:, ['chip', 'pair']]
+    keys = ['length', 'act_energy', 'alpha0', 'alpha1', 'ns']
+    titles = ['Length' + ulbl(ur.um), r'$U_A$' + ulbl(ur['meV']), r'$\alpha_0$', r'$\alpha_1$', r'$N_{sites}$']
+    for key, title in zip(keys, titles):
+        x_ = np.array(df[key])
+        dx = np.array(df['d_' + key])
+        x = ['$' + fmt((l_ * ur['']).plus_minus(dl).m, latex=True) + '$' for l_, dl in zip(x_, dx)]
+        df_latex[title] = x
+    if adjust_alpha:
+        x_ = np.array(df['alpha2'])
+        x = ['$' + fmt((l_), latex=True) + '$' for l_ in x_]
+        title = r'$\alpha_2$'
+        df_latex[title] = x
+        tex_path = os.path.join(res_dir, 'params_adjusted.tex')
+    else:
+        tex_path = os.path.join(res_dir, 'params.tex')
+    df_latex.set_index(['chip', 'pair']).style.to_latex(tex_path)
+
+
+def compare_stabtime(names):
+    fields = [0.02] * ur['V/um']
+    delta_field = 0.01 * ur['V/um']
+    dh = a.DataHandler()
+
+    for chip in data_dict:
+        dh.load_chip(chip)
+        res_dir = os.path.join('results', EXPERIMENT, chip)
+        os.makedirs(res_dir, exist_ok=True)
+        for pair in data_dict[chip]:
+            nums = data_dict[chip][pair]['nums']
+            stabtime = [] * ur.s
+            names = []
+            for time_key, time_nums in nums.items():
+                stabtime = np.append(stabtime, ur.Quantity(time_key))
+                names.append([f"{chip}_{i}" for i in time_nums])
+
+            fig, ax = plt.subplots()
+            fig.suptitle(f"Conductance ({chip} {pair})")
+            fit_cols = list('rkgmb')
+            for i, stabtime_i in enumerate(stabtime):
+                temperature, conductance = get_temperature_dependence(dh, names[i], fields, delta_field)
+                conductance = conductance[0]
+
+                indices = a.is_between(temperature, [101, 350]*ur.K)
+                x = 100 / temperature[indices]
+                y = conductance[indices]
+                x_, dx, ux = a.separate_measurement(x)
+                y_, dy, uy = a.separate_measurement(y)
+                ax.errorbar(x_, y_, xerr=dx, yerr=dy, fmt='o', zorder=i, c=f'C{i}', label=f'data after ${fmt(stabtime_i, latex=True)}$')
+
+                coeffs, model = a.fit_exponential(x, y)
+                act_energy = (- coeffs[0] * 100 * ur.k_B).to('meV')
+                print(f"Activation energy ({fmt(stabtime_i)}): {fmt(act_energy)}")
+                x_model = 100 / np.array([80, 350])
+                ax.plot(x_model, model(x_model), c=fit_cols[i], zorder=len(stabtime)+i,
+                        label=fr"fit after ${fmt(stabtime_i, latex=True)}$ ($U_A={fmt(act_energy, latex=True)}$)")
+            ax.legend()
+            ax.set_xlabel(r"$100/T$" + ulbl(ux))
+            ax.set_ylabel(r"$G$" + ulbl(uy))
+            ax.set_yscale('log')
+            res_image = os.path.join(res_dir, f"{chip}_{pair}_stabtime_comparison.png")
+            fig.savefig(res_image)
+            plt.close()
 
 
 class SliderSetter:
@@ -384,50 +484,18 @@ if __name__ == "__main__":
         },
     }
 
-    main(data_dict, adjust_alpha=adjust_alpha, plot_iv=False)
-    res_dir = os.path.join('results', EXPERIMENT)
-    if adjust_alpha:
-        csv_path = os.path.join(res_dir, 'params_adjusted.csv')
-        res_image = os.path.join(res_dir, "number_of_sites_adjusted.png")
-    else:
-        csv_path = os.path.join(res_dir, 'params.csv')
-        res_image = os.path.join(res_dir, "number_of_sites.png")
-    df = pd.read_csv(csv_path)
+    full(data_dict, adjust_alpha=adjust_alpha, plot_iv=False)
+    nsites(data_dict, adjust_alpha=adjust_alpha)
 
-    fig, ax = plt.subplots()
-    fig.suptitle('Number of Sites')
-    for chip in data_dict:
-        df0 = df.set_index('chip').loc[chip]
-        x_ = np.array(df0['length'])
-        dx = np.array(df0['d_length'])
-        y_ = np.array(df0['ns'])
-        dy = np.array(df0['d_ns'])
-        ax.errorbar(x_, y_, xerr=dx, yerr=dy, fmt='.', label=chip)
-        if len(x_.shape) > 0:
-            _, model = a.fit_linear((x_, dx, ur.um), (y_, dy, ur['']), already_separated=True)
-            x_model = np.array([0, np.amax(x_)*1.1])
-            ax.plot(x_model, model(x_model), c='r')
-    ax.set_xlabel('Length' + ulbl(ur.um))
-    ax.set_ylabel(r'$N_{sites}$')
-    ax.legend()
-    fig.savefig(res_image)
-    plt.close()
+    data_dict = {
+        'SPC2': {
+            'P15-P16': {
+                'nums': {
+                    '10s': [301, 303, 305, 307, 309, 311, 313, 316, 318, 320, 328, 330, 332],
+                    '20s': [300, 302, 304, 306, 308, 310, 312, 315, 317, 319, 327, 329, 331],
+                }
+            }
+        }
+    }
 
-    df_latex = df.loc[:, ['chip', 'pair']]
-    keys = ['length', 'alpha0', 'ns']
-    titles = ['Length' + ulbl(ur.um), r'$\alpha$', r'$N_{sites}$']
-    for key, title in zip(keys, titles):
-        ux = ur.um if key == 'length' else ur['']
-        x_ = np.array(df[key])
-        dx = np.array(df['d_' + key])
-        x = [fmt((l_ * ur['']).plus_minus(dl).m, latex=True) for l_, dl in zip(x_, dx)]
-        df_latex[title] = x
-    if adjust_alpha:
-        x_ = np.array(df['alpha2'])
-        x = [fmt((l_), latex=True) for l_ in x_]
-        title = r'$\alpha_{manual}'
-        df_latex[title] = x
-        tex_path = os.path.join(res_dir, 'params_adjusted.tex')
-    else:
-        tex_path = os.path.join(res_dir, 'params.tex')
-    df_latex.set_index(['chip', 'pair']).style.to_latex(tex_path)
+    compare_stabtime(data_dict)

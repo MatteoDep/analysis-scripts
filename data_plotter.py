@@ -15,13 +15,17 @@ import analysis as a
 from analysis import ur
 
 
-def plot_iv_with_inset(dh, names, res_dir):
+def plot_iv(dh, names, res_dir, zoom='auto', appendix=''):
     for i, name in enumerate(names):
         print(f"\rPlotting iv {i+1} of {len(names)}.", end='', flush=True)
         dh.load(name)
         fig, ax = plt.subplots(figsize=(12, 9))
         dh.plot(ax)
-        if dh.prop['temperature'] < 55*ur.K:
+        if zoom == 'auto':
+            zoom_ = dh.prop['temperature'] < 55*ur.K
+        else:
+            zoom_ = zoom
+        if zoom_:
             mask = dh.get_mask([-0.05, 0.05] * ur['V/um'])
             ax_in = ax.inset_axes([0.65, 0.08, 0.3, 0.3])
             dh.plot(ax_in, mask=mask, set_xy_label=False)
@@ -30,7 +34,7 @@ def plot_iv_with_inset(dh, names, res_dir):
             ax.indicate_inset_zoom(ax_in)
         fig.suptitle(f"{dh.chip} {dh.prop['pair']} at {dh.prop['temperature']}")
         res_image = os.path.join(
-            res_dir, f"{dh.chip}_{dh.prop['pair']}_iv_{a.fmt(dh.prop['temperature'], sep='')}.png"
+            res_dir, f"{dh.chip}_{dh.prop['pair']}_iv_{a.fmt(dh.prop['temperature'], sep='')}{appendix}.png"
         )
         with warnings.catch_warnings():
             warnings.simplefilter('ignore', category=UserWarning)
@@ -77,32 +81,31 @@ if __name__ == "__main__":
     correct_offset = True
 
     # paths
-    exp = 'raw'
-    chip = 'SPC3'
+    exp = 'gate'
+    chip = 'SPC2'
     data_dir = os.path.join('data', chip)
     res_dir = os.path.join('results', exp, chip)
     os.makedirs(res_dir, exist_ok=True)
 
     dh = a.DataHandler()
+    dh.set_default_params(only_return=False)
     dh.load_chip(chip)
 
     # defaults
     res_names = None
     titles = None
     labels = "{name}"
-    x_win = None
-    y_win = None
     colors = None
     modes = 'i/v'
 
     # presets per experiment
 
-    nums = np.arange(30, 33)
+    nums = [496]
     names = [[f"{chip}_{i}"] for i in nums]
     modes = ['i/t', 'vg/t']
     labels = None
-    titles = [f"{chip} {dh.props[names_[0]]['pair']}" for names_ in names]
-    res_names = [f"{chip}_{dh.props[names_[0]]['pair']}" for names_ in names]
+    titles = [f"Gate Trace ({chip} {dh.props[names_[0]]['pair']})" for names_ in names]
+    res_names = [f"{chip}_{dh.props[names_[0]]['pair']}_gate_trace" for names_ in names]
 
     # check all parameters and arguments
     if isinstance(labels, str) or labels is None:
@@ -124,12 +127,12 @@ if __name__ == "__main__":
         for name, label, color in zip(names_, labels[i], colors[i]):
             dh.load(name)
             for j, m in enumerate(modes):
-                axs[j] = dh.plot(axs[j], mode=m, label=label, color=color,
-                                 x_win=x_win, y_win=y_win)
+                axs[j] = dh.plot(axs[j], mode=m, label=label, color=color)
         if titles is not None:
             fig.suptitle(titles[i])
         if not np.array([label is None for label in labels[i]]).all():
             plt.legend()
+        fig.tight_layout()
         if show:
             plt.show()
         if save:

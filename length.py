@@ -22,7 +22,7 @@ def get_length_dependence(names, field, delta_field):
 
     injs = ['2p', '4p']
     length = {inj: [] * ur.um for inj in injs}
-    resistance = {inj: [] * ur['Mohm'] for inj in injs}
+    resistance = {inj: [] * ur.Mohm for inj in injs}
     pair = {'2p': [], '4p': []}
     for i, name in enumerate(names):
         dh.load(name)
@@ -81,9 +81,10 @@ def main(data_dict, pair_on_axis=False):
                 injs.remove('2p')
 
             for inj in injs:
-                fig, ax = plt.subplots(figsize=(20, 10))
+                figsize = (0.15 * np.amax(a.separate_measurement(length[inj])[0]), 9) if pair_on_axis else None
+                fig, ax = plt.subplots(figsize=figsize)
                 inj_label = inj.replace('p', '-probe')
-                ax.set_title(f"{inj_label} resistance ({temp_key})")
+                fig.suptitle(f"{inj_label} resistance ({temp_key})")
                 x = length[inj]
                 x_, dx, ux = a.separate_measurement(x)
                 pair_label = [f"{p}\n{x[i]}" for i, p in enumerate(pair[inj])]
@@ -99,42 +100,45 @@ def main(data_dict, pair_on_axis=False):
                     ax.xaxis.set_major_locator(ticker.FixedLocator((x_)))
                     ax.xaxis.set_major_formatter(ticker.FixedFormatter((pair_label)))
                     plt.setp(ax.get_xticklabels(), rotation=60, horizontalalignment='right', fontsize='x-small')
+                    res_image = os.path.join(res_dir, f"{temp_key}_{inj}_resistance_pairs.png")
                 else:
                     ax.set_xlabel("Length" + ulbl(ux))
+                    res_image = os.path.join(res_dir, f"{temp_key}_{inj}_resistance.png")
                 ax.set_ylabel("$R$" + ulbl(uy))
                 plt.tight_layout()
-                res_image = os.path.join(res_dir, f"{temp_key}_{inj}_resistance.png")
-                plt.savefig(res_image, dpi=100)
+                plt.savefig(res_image)
 
             # make compatible
             if '2p' in injs and '4p' in injs:
                 common_length = [] * ur.um
-                contact_resistance = [] * ur['Mohm']
+                contact_resistance_rel = []
                 common_pair_label = []
                 for i, p in enumerate(pair['2p']):
                     for j, p_ in enumerate(pair['4p']):
                         if p_ == p:
                             common_length = np.append(common_length, length['2p'][i])
                             common_pair_label = np.append(common_pair_label, f"{p}\n{common_length[-1]}")
-                            contact_resistance = np.append(
-                                contact_resistance, resistance['2p'][i] - resistance['4p'][j]
+                            contact_resistance_rel = np.append(
+                                contact_resistance_rel,
+                                (resistance['2p'][i] - resistance['4p'][j]) / resistance['2p'][i]
                             )
-
-                fig, ax = plt.subplots(figsize=(20, 10))
-                ax.set_title(f"Contact Resistance ({temp_key})")
+                figsize = (0.15 * np.amax(a.separate_measurement(common_length)[0]), 9) if pair_on_axis else None
+                fig, ax = plt.subplots(figsize=figsize)
+                fig.suptitle(f"Contact Resistance ({temp_key})")
                 x = common_length
                 x_, dx, ux = a.separate_measurement(x)
-                y = contact_resistance
+                y = contact_resistance_rel
                 y_, dy, uy = a.separate_measurement(y)
                 ax.errorbar(x_, y_, xerr=dx, yerr=dy, fmt='o')
                 if pair_on_axis:
                     ax.xaxis.set_major_locator(ticker.FixedLocator((x_)))
                     ax.xaxis.set_major_formatter(ticker.FixedFormatter((pair_label)))
                     plt.setp(ax.get_xticklabels(), rotation=60, horizontalalignment='right', fontsize='x-small')
+                    res_image = os.path.join(res_dir, f"{temp_key}_contact_resistance_pairs.png")
                 else:
                     ax.set_xlabel("Length" + ulbl(ux))
-                ax.set_ylabel("$R_{cont}$" + ulbl(uy))
-                res_image = os.path.join(res_dir, f"{temp_key}_contact_resistance.png")
+                    res_image = os.path.join(res_dir, f"{temp_key}_contact_resistance.png")
+                ax.set_ylabel(r"$R_{cont}/R_{2P}$")
                 plt.savefig(res_image)
 
 
@@ -143,7 +147,7 @@ if __name__ == "__main__":
         'SPC2': {
             'nums': np.concatenate([
                 np.arange(1, 23),
-                np.arange(24, 31),
+                np.arange(25, 31),
                 np.arange(111, 124),
             ])
         },
@@ -154,8 +158,14 @@ if __name__ == "__main__":
                 np.arange(14, 18),
             ])
         },
+        'SQC1': {
+            'nums': np.concatenate([
+                np.arange(7, 12),
+                np.arange(13, 37),
+            ])
+        }
     }
 
     dh = a.DataHandler()
 
-    main(data_dict)
+    main(data_dict, pair_on_axis=True)

@@ -21,7 +21,7 @@ plt.style.use('latex')
 
 ur = pint.UnitRegistry()
 ur.setup_matplotlib(False)
-ur.default_format = ".3g~P"
+ur.default_format = "~P"
 
 NUM_FIBERS = 60
 FIBER_RADIUS = (25 * ur.nanometer).plus_minus(3)
@@ -34,7 +34,7 @@ DEFAULT_UNITS = {
     'time': ur.s,
     'temperature': ur.K,
     'conductance': ur.S,
-    'resistance': ur['Mohm'],
+    'resistance': ur.Mohm,
     'length': ur.m,
 }
 
@@ -136,7 +136,8 @@ class DataHandler:
         Note: field_win will compute bias_win = length * field_win.
         """
         params = self._get_tmp_params(**params)
-        mask = np.ones(self.raw['time'].shape, dtype=bool)
+        n = self.raw['time'].shape[0]
+        mask = np.ones((n,), dtype=bool)
         if time_win is not None:
             mask *= is_between(self.raw['time'], time_win)
         if field_win is not None:
@@ -149,9 +150,16 @@ class DataHandler:
         if current_win is not None:
             mask *= is_between(self.get_current(**params), current_win)
         if params['only_return']:
-            direction = np.diff(self.get_bias().m) > 0
-            direction = np.append(direction, direction[0])
-            mask *= direction != direction[0]
+            inp = self.raw['bias'].m if self.prop['injection'] == '2P' else self.raw['current'].m
+            if inp[int(n / 6)] > inp[0]:
+                first = np.argmax(inp)
+                last = np.argmin(inp)
+            else:
+                first = np.argmin(inp)
+                last = np.argmax(inp)
+            mask_tmp = np.zeros((n,), dtype=bool)
+            mask_tmp[first:last] = True
+            mask *= mask_tmp
         return mask
 
     def get_field(self, **kwargs):
@@ -401,7 +409,7 @@ def fmt(x, latex=False, sep=' '):
     def fmt_m(m):
         try:
             res = ('{0:.1uS' + larg + '}').format(m)
-        except ValueError:
+        except (ValueError, TypeError):
             res = '{0:.3g}'.format(m)
             if latex:
                 res = res.split('e')
@@ -544,8 +552,8 @@ def fit_linear(x, y, ignore_err=False, already_separated=False, check_nan=True, 
 
     if debug:
         plt.figure()
-        plt.errorbar(x_, y_, xerr=dx, yerr=dy, fmt='o')
-        plt.plot(x_, p[0]*x_ + p[1])
+        plt.errorbar(x_, y_, xerr=dx, yerr=dy, fmt='.', zorder=0)
+        plt.plot(x_, p[0]*x_ + p[1], zorder=1)
         plt.show()
 
     return coeffs, lambda x, p=p: p[0]*x + p[1]
