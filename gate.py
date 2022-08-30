@@ -15,6 +15,8 @@ from data_plotter import get_cbar_and_cols
 
 
 EXPERIMENT = os.path.splitext(os.path.basename(__file__))[0]
+RES_DIR = os.path.join('results', EXPERIMENT)
+os.makedirs(RES_DIR, exist_ok=True)
 
 
 def get_gate_dependence(dh, names, fields, delta_field):
@@ -50,8 +52,6 @@ def main(data_dict):
     dh = a.DataHandler()
     for chip in data_dict:
         dh.load_chip(chip)
-        res_dir = os.path.join('results', EXPERIMENT, chip)
-        os.makedirs(res_dir, exist_ok=True)
         for pair in data_dict[chip]:
             nums = data_dict[chip][pair]['nums']
             names = np.array([f"{chip}_{i}" for i in nums])
@@ -112,8 +112,8 @@ def main(data_dict):
                 ax.set_xlabel(r"$V_G$" + ulbl(ux))
                 ax.set_ylabel(r"$G$" + ulbl(uy))
                 ax.set_yscale('log')
-                cbar.ax.set_ylabel("$E_{{bias}}$" + ulbl(fields.u))
-                res_image = os.path.join(res_dir, f"{chip}_{pair}_{temp_key}_gate_dep.png")
+                cbar.ax.set_ylabel("$E_{{bias}}$" + ulbl(fields_.u))
+                res_image = os.path.join(RES_DIR, f"{chip}_{pair}_{temp_key}_gate_dep.png")
                 fig.savefig(res_image)
                 plt.close()
 

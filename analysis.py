@@ -27,18 +27,6 @@ NUM_FIBERS = 60
 FIBER_RADIUS = (25 * ur.nanometer).plus_minus(3)
 
 
-DEFAULT_UNITS = {
-    'bias': ur.V,
-    'gate': ur.V,
-    'current': ur.A,
-    'time': ur.s,
-    'temperature': ur.K,
-    'conductance': ur.S,
-    'resistance': ur.Mohm,
-    'length': ur.m,
-}
-
-
 # HIGHER LEVEL FUNCTIONS
 
 # HANDLE DATA
@@ -47,16 +35,27 @@ class DataHandler:
     """
     Loads data and builds quantities arrays.
     """
-    PARAMS = {
+    _PARAMS = {
         'only_return': True,
         'correct_offset': True,
         'offset_mask_args': {'field_win': [-0.05, 0.05]*ur['V/um'], 'only_return': True},
+        'contact_resistance': 0*ur.ohm,
+    }
+    _UNITS = {
+        'bias': ur.V,
+        'gate': ur.V,
+        'current': ur.A,
+        'time': ur.s,
+        'temperature': ur.K,
+        'conductance': ur.S,
+        'resistance': ur.Mohm,
+        'length': ur.m,
     }
 
     def __init__(self, data_dir='data', chips_dir='chips', **params):
         self.data_dir = data_dir
         self.chips_dir = chips_dir
-        self.PARAMS.update(params)
+        self.set_default_params(**params)
         self.props = {}
         self.cp_cache = {}
         self.cp = None
@@ -76,7 +75,8 @@ class DataHandler:
         Note: assumes that names are not shared between different chips."""
         # extend chip parameters dict
         cp_path = os.path.join(self.chips_dir, chip + '.json')
-        self.cp_cache[chip] = ChipParameters(cp_path)
+        if chip not in self.cp_cache:
+            self.cp_cache[chip] = ChipParameters(cp_path)
         self.cp = self.cp_cache[chip]
         self.chip = chip
         # extend properties dict
@@ -122,35 +122,36 @@ class DataHandler:
                     keys = [o.replace('i', 'current').replace('v', 'bias') for o in self.prop['order']] \
                         + ['gate', 'temperature', 'time']
                     for old_key, key in zip(old_keys, keys):
-                        self.cache[name][key] = ur.Quantity(df[old_key].to_numpy(), DEFAULT_UNITS[key])
+                        self.cache[name][key] = ur.Quantity(df[old_key].to_numpy(), self._UNITS[key])
                 else:
                     raise FileNotFoundError(f"Could not load name '{name}'. File does not exist.")
             self.raw = self.cache[name]
         return self.raw
 
     def set_default_params(self, **params):
-        self.PARAMS.update(params)
+        self._PARAMS.update(params)
+
+    def set_default_units(self, **units):
+        self._UNITS.update(units)
 
     def get_mask(self, field_win=None, time_win=None, bias_win=None, current_win=None, **params):
-        """Generate mask to be applied to data.
-        Note: field_win will compute bias_win = length * field_win.
-        """
+        """Generate mask to be applied to data."""
         params = self._get_tmp_params(**params)
         n = self.raw['time'].shape[0]
         mask = np.ones((n,), dtype=bool)
         if time_win is not None:
-            mask *= is_between(self.raw['time'], time_win)
+            mask *= is_between(self.get_time(), time_win)
         if field_win is not None:
             if bias_win is not None:
                 warnings.warn("argument 'field_win' ignored because 'bias_win' takes precedence.", UserWarning)
             else:
                 mask *= is_between(self.get_field(), field_win)
         if bias_win is not None:
-            mask *= is_between(self.raw['bias'], bias_win)
+            mask *= is_between(self.get_bias(), bias_win)
         if current_win is not None:
             mask *= is_between(self.get_current(**params), current_win)
         if params['only_return']:
-            inp = self.raw['bias'].m if self.prop['injection'] == '2P' else self.raw['current'].m
+            inp = self.raw['bias'].m if self.prop['injection'].lower() == '2p' else self.raw['current'].m
             if inp[int(n / 6)] > inp[0]:
                 first = np.argmax(inp)
                 last = np.argmin(inp)
@@ -165,36 +166,31 @@ class DataHandler:
     def get_field(self, **kwargs):
         return self.get_bias(**kwargs) / self.get_length()
 
-    def get_current(self, mask=None, **params):
-        current = self.raw['current'].copy()
+    def get_current(self, method='all', mask=None, **params):
         params = self._get_tmp_params(**params)
-        if self.prop['injection'] == '2P':
-            if params['correct_offset']:
-                offset_mask = self.get_mask(**params['offset_mask_args'])
-                current -= np.mean(current[offset_mask])
-        if mask is not None:
-            current = self.apply_mask(current, mask)
-        return current
+        if self.prop['injection'].lower() == '2p' and params['correct_offset']:
+            offset_mask = self.get_mask(**params['offset_mask_args'])
+            current = self.raw['current'] - np.mean(self.raw['current'][offset_mask])
+        else:
+            current = self.raw['current']
+        return self._process_quantity(current, method, mask).to(self._UNITS['current'])
 
     def get_conductance(self, method='all', mask=None, **params):
         """Calculate conductance."""
         bias = self.get_bias()
-        bias = self.apply_mask(bias, bias != 0*ur.V)
         if method == 'fit':
             current = self.get_current(mask=mask, correct_offset=False)
             coeffs, _ = fit_linear(bias, current)
             conductance = coeffs[0]
         else:
-            current = self.get_current(mask=mask, **params)
+            bias = self.apply_mask(bias, bias != 0*ur.V)
+            current = self.get_current(**params)
             conductance = current / bias
-            if method == 'average':
-                conductance = average(conductance)
-            elif method != 'all':
-                raise ValueError(f'Unknown method {method}.')
-        return conductance.to(DEFAULT_UNITS['conductance'])
+            conductance = self._process_quantity(conductance, method=method, mask=mask)
+        return conductance.to(self._UNITS['conductance'])
 
     def get_resistance(self, **kwargs):
-        return (1 / self.get_conductance(**kwargs)).to(DEFAULT_UNITS['resistance'])
+        return (1 / self.get_conductance(**kwargs)).to(self._UNITS['resistance'])
 
     def get_temperature(self, **kwargs):
         return self._get_simple('temperature', **kwargs)
@@ -210,32 +206,35 @@ class DataHandler:
 
     @staticmethod
     def apply_mask(q, mask):
-        qres = q.copy()
-        notmask = np.where(mask, False, True)
-        qres[notmask] = np.nan
-        return qres
+        return np.where(mask, q, np.nan)
+
+    @staticmethod
+    def _process_quantity(q, method='all', mask=None):
+        if method == 'average':
+            if mask is not None:
+                q = q[mask]
+            q = average(q)
+        elif method != 'all':
+            if mask is not None:
+                q = __class__.apply_mask(q, mask)
+            raise ValueError(f'Unknown method {method}.')
+        return q
 
     def _get_simple(self, key, method='all', mask=None):
         q = self.raw[key]
-        if mask is not None:
-            q = self.apply_mask(q)
-        if method == 'average':
-            q = average(q)
-        elif method != 'all':
-            raise ValueError(f'Unknown method {method}.')
-        return q.to(DEFAULT_UNITS[key])
+        return self._process_quantity(q, method, mask).to(self._UNITS[key])
 
     def _get_tmp_params(self, **params):
-        for key in self.PARAMS:
+        for key in self._PARAMS:
             if key not in params:
-                params[key] = self.PARAMS[key]
+                params[key] = self._PARAMS[key]
         return params
 
     def get_length(self):
         return self.cp.get_distance(self.prop['pair'])
 
     def plot(self, ax, mode='i/v', mask=None, label=None,
-             color=None, set_xy_label=True):
+             color=None, set_xy_label=True, to_compact=['current']):
         key_short_list = ['t', 'v', 'vg', 'i']
         key_list = ['time', 'bias', 'gate', 'current']
         sym_list = ['t', 'V', 'V_G', 'I']
@@ -243,6 +242,8 @@ class DataHandler:
         xkey = key_list[key_short_list.index(xkey)]
         ykeys = [key_list[key_short_list.index(ykey)] for ykey in ykeys.split('-')]
         x = self.raw[xkey]
+        if xkey in to_compact:
+            x = q_to_compact(x)
         if mask is not None:
             x = x[mask]
         if label is not None:
@@ -250,6 +251,8 @@ class DataHandler:
 
         for ykey in ykeys:
             y = self.raw[ykey]
+            if ykey in to_compact:
+                y = q_to_compact(y)
             if mask is not None:
                 y = y[mask]
             # correct data
@@ -272,7 +275,7 @@ class DataHandler:
             for j, key in enumerate(instruction_dict):
                 if i == 0:
                     if key.startswith('get_'):
-                        res[j] *= DEFAULT_UNITS[key.split('get_')[1]]
+                        res[j] *= self._UNITS[key.split('get_')[1]]
                 res0 = getattr(self, key)(**per_data_args[key], **instruction_dict[key])
                 res[j] = np.append(res[j], res0)
         return res
@@ -388,12 +391,16 @@ def is_between(x, win):
     t0, t1 = win
     mask = np.ones(x.shape, dtype=bool)
     if not hasattr(t0, 'units'):
-        t0 *= np.amax(x)
+        t0 *= np.amax(np.abs(x))
     mask *= x > t0
     if not hasattr(t1, 'units'):
-        t1 *= np.amax(x)
+        t1 *= np.amax(np.abs(x))
     mask *= x < t1
     return mask
+
+
+def q_to_compact(x):
+    return x.to(np.amax(x).to_compact().units)
 
 
 def fmt(x, latex=False, sep=' '):

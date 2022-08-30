@@ -95,17 +95,17 @@ def save(df, path_name):
 
 
 def modify_gain(df, key, fact):
-    df.loc[key] *= fact
+    df[key] *= fact
     return df
 
 
 if __name__ == "__main__":
-    chip = "SIC1x"
+    chip = "SQC1"
     data_dir = os.path.join('data', chip)
     bkp_data_dir = os.path.join('data', 'bkp', chip)
     os.makedirs(bkp_data_dir, exist_ok=True)
 
-    nums = np.arange(699, 846)
+    nums = [157, 158]
     names = [f"{chip}_{i}" for i in nums]
 
     for i, name in enumerate(names):
@@ -117,6 +117,7 @@ if __name__ == "__main__":
                 if not os.path.exists(bkp_name + ext):
                     shutil.copyfile(path_name + ext, bkp_name + ext)
         df = load(path_name)
+        df = modify_gain(df, 'y', 0.1)
         if df is not None:
             save(df, path_name)
     print(f"\rProcessed {len(names)} of {len(names)}.")

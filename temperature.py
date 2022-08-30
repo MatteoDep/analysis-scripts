@@ -18,31 +18,29 @@ import data_plotter as dp
 
 
 EXPERIMENT = os.path.splitext(os.path.basename(__file__))[0]
+DEFAULT_NOISE_LEVEL = 0.5*ur.pA
+RES_DIR = os.path.join('results', EXPERIMENT)
+os.makedirs(RES_DIR, exist_ok=True)
 
 
-def get_temperature_dependence(dh, names, fields, delta_field):
+def get_temperature_dependence(dh, names, fields, delta_field, noise_level=DEFAULT_NOISE_LEVEL):
     temperature = [] * ur.K
     conductance = [[] * ur.S for f in fields]
-    max_j = len(fields)
     for i, name in enumerate(names):
         dh.load(name)
-        temperature_ = dh.get_temperature(method='average')
-        temperature = np.append(temperature, temperature_)
-        mask_denoise = dh.get_mask(current_win=[0.5*ur.pA, 1])
-        full_conductance = dh.get_conductance()
-        full_conductance_denoised = dh.get_conductance(mask=mask_denoise)
+        temperature_i = dh.get_temperature(method='average')
+        temperature = np.append(temperature, temperature_i)
+        mask_denoise = dh.get_mask(current_win=[noise_level, 1])
+        # full_conductance = dh.get_conductance()
+        # full_conductance_denoised = dh.get_conductance(mask=mask_denoise)
+        full_conductance = dh.get_conductance(mask=mask_denoise)
         for j, field in enumerate(fields):
-            if j < max_j:
-                field_win = [field - delta_field, field + delta_field]
-                if dh.prop['bias'] < field_win[1] * dh.get_length():
-                    max_j = j
-                    conductance_i = np.nan
-                else:
-                    mask = dh.get_mask(field_win=field_win)
-                    if np.sum(a.isnan(full_conductance_denoised[mask])) < np.sum(mask):
-                        conductance_i = a.average(full_conductance[mask])
-                    else:
-                        conductance_i = np.nan
+            field_win = [field - delta_field, field + delta_field]
+            mask = dh.get_mask(field_win=field_win)
+            # if np.sum(a.isnan(full_conductance_denoised[mask])) < np.sum(mask):
+            cond = np.sum(a.isnan(full_conductance[mask])) < 0.1 * np.sum(mask)
+            if cond:
+                conductance_i = a.average(full_conductance[mask])
             else:
                 conductance_i = np.nan
             conductance[j] = np.append(conductance[j], conductance_i)
@@ -74,57 +72,82 @@ def full(data_dict, adjust_alpha=False, plot_iv=False):
 
     for chip in data_dict:
         dh.load_chip(chip)
-        res_dir = os.path.join('results', EXPERIMENT, chip)
-        os.makedirs(res_dir, exist_ok=True)
         for pair in data_dict[chip]:
             nums = data_dict[chip][pair]['nums']
             names = np.array([f"{chip}_{i}" for i in nums])
             names = names[np.argsort(a.qlist_to_qarray([dh.props[name]['temperature'] for name in names]))]
 
-            dh.load(names)
+            dh.load(names[0])
             length = dh.get_length()
             length_, dlength, _ = a.separate_measurement(length)
             print(f"Chip {chip}, Pair {pair} of length {fmt(length)}.")
-            fields = fields[(fields + delta_field) * length < dh.props[names[0]]['bias']]
+            fields_ = fields[(fields + delta_field) * length < dh.prop['bias']]
 
             if 'lowtemp_highbias_num' in data_dict[chip][pair]:
                 lowtemp_highbias_name = f"{chip}_{data_dict[chip][pair]['lowtemp_highbias_num']}"
             else:
                 lowtemp_highbias_name = names[0]
             if plot_iv:
-                dp.plot_iv(dh, names, res_dir, zoom='auto')
-                dp.plot_iv(dh, [lowtemp_highbias_name], res_dir, zoom=False, appendix='_high_bias')
+                dp.plot_iv(dh, names, RES_DIR, zoom='auto')
+                dp.plot_iv(dh, [lowtemp_highbias_name], RES_DIR, zoom=False, appendix='_high_bias')
 
             df_index = np.nonzero(np.array((df['chip'] == chip) * (df['pair'] == pair)))[0]
 
-            temperature, conductance = get_temperature_dependence(dh, names, fields, delta_field)
+            if 'noise_level' in data_dict[chip][pair]:
+                noise_level = data_dict[chip][pair]['noise_level']
+            else:
+                noise_level = DEFAULT_NOISE_LEVEL
+            if 'contact_resistance' in data_dict[chip][pair]:
+                dh.set_default_params(contact_resistance=data_dict[chip][pair]['contact_resistance'])
+            else:
+                dh.set_default_params(contact_resistance=None)
+            temperature, conductance = get_temperature_dependence(dh, names, fields_, delta_field, noise_level=noise_level)
+
+            # High temperature dependence
+            indices = a.is_between(temperature, [101, 350]*ur.K)
+            act_energy, act_energy_, dact_energy = None, None, None
+            if np.sum(indices) > 2:
+                fig, ax = plt.subplots()
+                fig.suptitle(f"High Temperature Conductance ({chip} {pair})")
+                x = 100 / temperature[indices]
+                y = conductance[0][indices]
+                x_, dx, ux = a.separate_measurement(x)
+                y_, dy, uy = a.separate_measurement(y)
+                ax.errorbar(x_, y_, xerr=dx, yerr=dy, fmt='o', zorder=0, label='data')
+                coeffs, act_model = a.fit_exponential(x, y)
+                act_energy = (- coeffs[0] * 100 * ur.k_B).to('meV')
+                act_energy_, dact_energy, _ = a.separate_measurement(act_energy)
+                print("Activation energy:", fmt(act_energy))
+                x_model = 100 / np.array([80, 350])
+                ax.plot(x_model, act_model(x_model), c='r', zorder=1, label=fr'fit ($U_A = {fmt(act_energy, latex=True)}$)')
+                ax.legend()
+                ax.set_xlabel(r"$100/T$" + ulbl(ux))
+                ax.set_ylabel(r"$G$" + ulbl(uy))
+                ax.set_yscale('log')
+                res_image = os.path.join(RES_DIR, f"{chip}_{pair}_high_temperature.png")
+                fig.savefig(res_image)
+                plt.close()
 
             # plot temperature dependence
-            indices = a.is_between(temperature, [101, 350]*ur.K)
             x = 100 / temperature
             x_, dx, ux = a.separate_measurement(x)
             fig, ax = plt.subplots()
             fig.suptitle(f"Conductance ({chip} {pair})")
-            cbar, cols = dp.get_cbar_and_cols(fig, fields, vmin=0)
-            for i, field in enumerate(fields):
+            cbar, cols = dp.get_cbar_and_cols(fig, fields_, vmin=0)
+            for i, field in enumerate(fields_):
                 y = conductance[i]
                 x_, dx, ux = a.separate_measurement(x)
                 y_, dy, uy = a.separate_measurement(y)
                 x_, y_, dx, dy = a.strip_nan(x_, y_, dx, dy)
                 ax.errorbar(x_, y_, xerr=dx, yerr=dy, fmt='--o', zorder=i, c=cols[i])
-                if i == 0 and np.sum(indices) > 1:
-                    coeffs, model = a.fit_exponential(x[indices], y[indices])
-                    act_energy = (- coeffs[0] * 100 * ur.k_B).to('meV')
-                    act_energy_, dact_energy, _ = a.separate_measurement(act_energy)
-                    print("Activation energy:", fmt(act_energy))
-                    x_model = 100 / np.array([80, 350])
-                    ax.plot(x_model, model(x_model), c='r', zorder=len(fields), label=fr"fit ($U_A = {fmt(act_energy, latex=True)}$)")
+                if i == 0 and act_energy is not None:
+                    ax.plot(x_model, act_model(x_model), c='r', zorder=len(fields_), label=fr"fit ($U_A = {fmt(act_energy, latex=True)}$)")
             ax.legend()
             ax.set_xlabel(r"$100/T$" + ulbl(ux))
             ax.set_ylabel(r"$G$" + ulbl(uy))
             ax.set_yscale('log')
-            cbar.ax.set_ylabel("$E_{bias}$" + ulbl(fields.u))
-            res_image = os.path.join(res_dir, f"{chip}_{pair}_temperature_dep.png")
+            cbar.ax.set_ylabel("$E_{bias}$" + ulbl(fields_.u))
+            res_image = os.path.join(RES_DIR, f"{chip}_{pair}_temperature_dep.png")
             fig.savefig(res_image)
             plt.close()
 
@@ -135,7 +158,7 @@ def full(data_dict, adjust_alpha=False, plot_iv=False):
             fig.suptitle(f'Power Law ({chip} {pair})')
 
             # power law temperature dependence at low bias
-            indices = a.is_between(temperature, [20, 100]*ur.K)
+            indices = a.is_between(temperature, [20, 110]*ur.K)
             x = temperature[indices]
             y = conductance[0][indices]
             x, y = a.strip_nan(x, y)
@@ -156,7 +179,8 @@ def full(data_dict, adjust_alpha=False, plot_iv=False):
 
             # power law bias dependence at low temperature
             dh.load(lowtemp_highbias_name)
-            mask = dh.get_mask(field_win=[0.3*ur['V/um'], 1])
+            # mask = dh.get_mask(current_win=[10*ur.pA, 1])
+            mask = dh.get_mask(field_win=[0.5*ur['V/um'], 1])
             x = dh.get_bias()
             y = dh.get_conductance(mask=mask)
             x, y = a.strip_nan(x, y)
@@ -174,7 +198,7 @@ def full(data_dict, adjust_alpha=False, plot_iv=False):
             ax2.set_ylabel(r"$G$" + ulbl(uy))
             ax2.legend()
             fig.tight_layout()
-            res_image = os.path.join(res_dir, f"{chip}_{pair}_power_law.png")
+            res_image = os.path.join(RES_DIR, f"{chip}_{pair}_power_law.png")
             fig.savefig(res_image)
             plt.close()
 
@@ -194,7 +218,7 @@ def full(data_dict, adjust_alpha=False, plot_iv=False):
             lines = []
             for i, name in enumerate(names[indices]):
                 dh.load(name)
-                mask = dh.get_mask(current_win=[4*ur.pA, 1])
+                mask = dh.get_mask(current_win=[6*noise_level, 1])
                 temperature_i = dh.get_temperature()[mask]
                 bias_i = dh.get_bias()[mask]
                 current_i = dh.get_current()[mask]
@@ -214,7 +238,7 @@ def full(data_dict, adjust_alpha=False, plot_iv=False):
             ax.set_ylim([np.amin(y_) / 3, 3 * np.amax(y_)])
 
             if adjust_alpha:
-                res_image = os.path.join(res_dir, f"{chip}_{pair}_universal_scaling_adjusted.png")
+                res_image = os.path.join(RES_DIR, f"{chip}_{pair}_universal_scaling_adjusted.png")
                 fig.suptitle(fr'Universal Scaling Curve - Adjusted $\alpha$ ({chip} {pair})')
 
                 def update(val):
@@ -242,7 +266,7 @@ def full(data_dict, adjust_alpha=False, plot_iv=False):
                 y_ = update(alpha2)
                 print("alpha2:", fmt(alpha2))
             else:
-                res_image = os.path.join(res_dir, f"{chip}_{pair}_universal_scaling.png")
+                res_image = os.path.join(RES_DIR, f"{chip}_{pair}_universal_scaling.png")
                 fig.suptitle(f'Universal Scaling Curve ({chip} {pair})')
 
             def f(beta, x):
@@ -253,7 +277,7 @@ def full(data_dict, adjust_alpha=False, plot_iv=False):
             coeffs_units = [ur[''], ur.A]
             coeffs, model = a.fit_generic(
                 (x_, dx, ux), (y_, dy, uy), f, [ns0, ns0*1e-25], coeffs_units,
-                log='', already_separated=True, debug=False,
+                log='y', already_separated=True, debug=False,
             )
             ns, i0 = coeffs
             ns_, dns, _ = a.separate_measurement(ns)
@@ -294,15 +318,15 @@ def full(data_dict, adjust_alpha=False, plot_iv=False):
 
 
 def nsites(data_dict, adjust_alpha=False):
-    res_dir = os.path.join('results', EXPERIMENT)
+    RES_DIR = os.path.join('results', EXPERIMENT)
     title = 'Number of Sites'
     if adjust_alpha:
-        csv_path = os.path.join(res_dir, 'params_adjusted.csv')
-        res_image = os.path.join(res_dir, "number_of_sites_adjusted.png")
+        csv_path = os.path.join(RES_DIR, 'params_adjusted.csv')
+        res_image = os.path.join(RES_DIR, "number_of_sites_adjusted.png")
         title += r' - Adjusted $\alpha$'
     else:
-        csv_path = os.path.join(res_dir, 'params.csv')
-        res_image = os.path.join(res_dir, "number_of_sites.png")
+        csv_path = os.path.join(RES_DIR, 'params.csv')
+        res_image = os.path.join(RES_DIR, "number_of_sites.png")
     df = pd.read_csv(csv_path)
 
     fig, ax = plt.subplots()
@@ -313,7 +337,7 @@ def nsites(data_dict, adjust_alpha=False):
         dx = np.array(df0['d_length'])
         y_ = np.array(df0['ns'])
         dy = np.array(df0['d_ns'])
-        ax.errorbar(x_, y_, xerr=dx, yerr=dy, fmt='.', label=chip)
+        ax.errorbar(x_, y_, xerr=dx, yerr=dy, fmt='o', label=chip)
         if len(x_.shape) > 0:
             _, model = a.fit_linear((x_, dx, ur.um), (y_, dy, ur['']), already_separated=True)
             x_model = np.array([0, np.amax(x_)*1.1])
@@ -337,9 +361,9 @@ def nsites(data_dict, adjust_alpha=False):
         x = ['$' + fmt((l_), latex=True) + '$' for l_ in x_]
         title = r'$\alpha_2$'
         df_latex[title] = x
-        tex_path = os.path.join(res_dir, 'params_adjusted.tex')
+        tex_path = os.path.join(RES_DIR, 'params_adjusted.tex')
     else:
-        tex_path = os.path.join(res_dir, 'params.tex')
+        tex_path = os.path.join(RES_DIR, 'params.tex')
     df_latex.set_index(['chip', 'pair']).style.to_latex(tex_path)
 
 
@@ -350,8 +374,8 @@ def compare_stabtime(names):
 
     for chip in data_dict:
         dh.load_chip(chip)
-        res_dir = os.path.join('results', EXPERIMENT, chip)
-        os.makedirs(res_dir, exist_ok=True)
+        RES_DIR = os.path.join('results', EXPERIMENT, chip)
+        os.makedirs(RES_DIR, exist_ok=True)
         for pair in data_dict[chip]:
             nums = data_dict[chip][pair]['nums']
             stabtime = [] * ur.s
@@ -384,7 +408,7 @@ def compare_stabtime(names):
             ax.set_xlabel(r"$100/T$" + ulbl(ux))
             ax.set_ylabel(r"$G$" + ulbl(uy))
             ax.set_yscale('log')
-            res_image = os.path.join(res_dir, f"{chip}_{pair}_stabtime_comparison.png")
+            res_image = os.path.join(RES_DIR, f"{chip}_{pair}_stabtime_comparison.png")
             fig.savefig(res_image)
             plt.close()
 
@@ -415,7 +439,7 @@ class SliderSetter:
 
 
 if __name__ == "__main__":
-    adjust_alpha = False
+    adjust_alpha = True
     data_dict = {
         'SPC2': {
             "P2-P4": {
@@ -471,20 +495,42 @@ if __name__ == "__main__":
                 'nums': np.concatenate([
                     np.arange(24, 30),
                     np.arange(48, 52),
-                    np.arange(70, 73),
-                    np.arange(91, 93),
-                    np.arange(111, 114),
-                    np.arange(132, 134),
-                    np.arange(152, 154),
-                    np.arange(172, 174),
-                    [192],
+                    [70, 71, 91, 92, 111, 112, 113, 132, 133, 152, 153, 172, 173, 192],
                 ]),
                 'lowtemp_highbias_num': 5,
             },
         },
+        'SQC1': {
+            'P2-P3': {
+                'nums': np.arange(46, 77),
+                'lowtemp_highbias_num': 45,
+                # 'noise_level': 1*ur.pA,
+            },
+            'P1-P4': {
+                'nums': np.concatenate([
+                    np.arange(80, 95),
+                    np.arange(96, 110),
+                ]),
+                'noise_level': 1*ur.pA,
+            },
+            'P2-P9': {
+                'nums': np.arange(114, 146),
+                'noise_level': 1*ur.pA,
+            },
+            'P9-P15': {
+                'nums': np.arange(147, 178),
+                'lowtemp_highbias_num': 146,
+                'noise_level': 1*ur.pA,
+            },
+        },
     }
 
-    full(data_dict, adjust_alpha=adjust_alpha, plot_iv=False)
+    # data_dict_ = {'SPC2': {'P2-P4': data_dict['SPC2']['P2-P4']}}
+    # data_dict_ = {k: v for k, v in data_dict.items() if k in ['SQC1', 'SLBC2']}
+    # data_dict_ = {k: v for k, v in data_dict.items() if k in ['SQC1']}
+    data_dict_ = data_dict
+
+    full(data_dict_, adjust_alpha=adjust_alpha, plot_iv=False)
     nsites(data_dict, adjust_alpha=adjust_alpha)
 
     data_dict = {
@@ -498,4 +544,4 @@ if __name__ == "__main__":
         }
     }
 
-    compare_stabtime(data_dict)
+    # compare_stabtime(data_dict)
