@@ -11,6 +11,7 @@ from matplotlib import pyplot as plt
 from matplotlib import ticker
 import analysis as a
 from analysis import ur, fmt, ulbl
+from data_plotter import include_origin
 
 
 EXPERIMENT = os.path.splitext(os.path.basename(__file__))[0]
@@ -34,50 +35,10 @@ def get_length_dependence(dh, names, field, delta_field):
     return length, resistance, pair
 
 
-def plot_fit(dh, data_dict):
-    delta_field = 0.001*ur['V/um']
-
-    for chip in data_dict:
-        dh.load_chip(chip)
-        nums = data_dict[chip]['nums']
-        names = np.array([f"{chip}_{i}" for i in nums])
-        for i, name in enumerate(names):
-            dh.load(name)
-            inj = dh.prop['injection'].lower()
-            mask = dh.get_mask([-delta_field, delta_field])
-            bias = dh.get_bias()
-            current = a.q_to_compact(dh.get_current(correct_offset=False))
-            if inj == '2p':
-                x, y = bias, current
-            else:
-                x, y = current, bias
-            x_, _, ux = a.separate_measurement(x[mask])
-            y_, _, uy = a.separate_measurement(y[mask])
-            coeffs, model = a.fit_linear((x_, None, ux), (y_, None, uy), already_separated=True)
-            fig, ax = plt.subplots()
-            inj_label = inj.replace('p', '-probe')
-            fig.suptitle(f'{inj_label} Measurement')
-            mode = 'i/v' if inj == '2p' else 'v/i'
-            ax = dh.plot(ax, mode=mode, label='data')
-            x_model = np.array([np.amin(x.m), np.amax(x.m)])
-            ax.plot(x_model, model(x_model), c='r', label='fit')
-            ax_in = ax.inset_axes([0.65, 0.08, 0.3, 0.3])
-            ax_in.plot(x_, y_, 'o')
-            ax_in.plot(x_, model(x_), c='r')
-            ax_in.set_xmargin(0)
-            ax_in.set_ymargin(0)
-            ax_in.set_title('fit region')
-            ax.indicate_inset_zoom(ax_in)
-            ax.legend()
-            res_image = os.path.join(RES_DIR, f"{chip}_{dh.prop['pair']}_{inj}_resistance.png")
-            plt.savefig(res_image)
-            plt.close()
-
-
 def main(dh, data_dict, pair_on_axis=False):
     """Compute resistance over length characterization."""
     field = 0*ur['V/um']
-    delta_field = 0.01*ur['V/um']
+    delta_field = 0.001*ur['V/um']
 
     for chip in data_dict:
         dh.load_chip(chip)
@@ -99,6 +60,9 @@ def main(dh, data_dict, pair_on_axis=False):
         if len(length['2p']) == 0:
             injs.remove('2p')
 
+        max_length = a.separate_measurement(max([np.amax(a.separate_measurement(length[inj])[0]) for inj in injs]))[0]
+        xlim = [-10, max_length + 10]
+        pair_label = {}
         for inj in injs:
             figsize = (0.15 * np.amax(a.separate_measurement(length[inj])[0]), 9) if pair_on_axis else None
             fig, ax = plt.subplots(figsize=figsize)
@@ -106,7 +70,7 @@ def main(dh, data_dict, pair_on_axis=False):
             fig.suptitle(f"{inj_label} Resistance")
             x = length[inj]
             x_, dx, ux = a.separate_measurement(x)
-            pair_label = [f"{p}\n{x[i]}" for i, p in enumerate(pair[inj])]
+            pair_label[inj] = [f"{p}\n{fmt(x[i], latex=True)}" for i, p in enumerate(pair[inj])]
             y = resistance[inj]
             y_, dy, uy = a.separate_measurement(y)
             ax.errorbar(x_, y_, xerr=dx, yerr=dy, fmt='o', label='data')
@@ -117,12 +81,15 @@ def main(dh, data_dict, pair_on_axis=False):
                 ax.legend()
             if pair_on_axis:
                 ax.xaxis.set_major_locator(ticker.FixedLocator((x_)))
-                ax.xaxis.set_major_formatter(ticker.FixedFormatter((pair_label)))
+                ax.xaxis.set_major_formatter(ticker.FixedFormatter((pair_label[inj])))
                 plt.setp(ax.get_xticklabels(), rotation=60, horizontalalignment='right', fontsize='x-small')
+                fig.tight_layout()
                 res_image = os.path.join(RES_DIR, f"{chip}_{inj}_resistance_pairs.png")
             else:
                 ax.set_xlabel("Length" + ulbl(ux))
                 res_image = os.path.join(RES_DIR, f"{chip}_{inj}_resistance.png")
+            ax.set_xlim(xlim)
+            ax = include_origin(ax, 'y')
             ax.set_ylabel("$R$" + ulbl(uy))
             plt.savefig(res_image)
             plt.close()
@@ -136,14 +103,17 @@ def main(dh, data_dict, pair_on_axis=False):
                 for j, p_ in enumerate(pair['4p']):
                     if p_ == p:
                         common_length = np.append(common_length, length['2p'][i])
-                        common_pair_label = np.append(common_pair_label, f"{p}\n{common_length[-1]}")
+                        common_pair_label = np.append(common_pair_label, f"{p}\n{length['2p'][i]}")
                         contact_resistance_rel = np.append(
                             contact_resistance_rel,
                             (resistance['2p'][i] - resistance['4p'][j]) / resistance['2p'][i]
                         )
+            # common_length = length['2p']
+            # common_pair_label = pair_label['2p']
+            # contact_resistance_rel = (resistance['2p'] - length['2p'] * coeffs[0]) / resistance['2p']
             figsize = (0.15 * np.amax(a.separate_measurement(common_length)[0]), 9) if pair_on_axis else None
             fig, ax = plt.subplots(figsize=figsize)
-            fig.suptitle("Contact Resistance")
+            fig.suptitle("Relative Contact Resistance")
             x = common_length
             x_, dx, ux = a.separate_measurement(x)
             y = contact_resistance_rel
@@ -151,12 +121,14 @@ def main(dh, data_dict, pair_on_axis=False):
             ax.errorbar(x_, y_, xerr=dx, yerr=dy, fmt='o')
             if pair_on_axis:
                 ax.xaxis.set_major_locator(ticker.FixedLocator((x_)))
-                ax.xaxis.set_major_formatter(ticker.FixedFormatter((pair_label)))
+                ax.xaxis.set_major_formatter(ticker.FixedFormatter((common_pair_label)))
                 plt.setp(ax.get_xticklabels(), rotation=60, horizontalalignment='right', fontsize='x-small')
+                fig.tight_layout()
                 res_image = os.path.join(RES_DIR, f"{chip}_contact_resistance_pairs.png")
             else:
                 ax.set_xlabel("Length" + ulbl(ux))
                 res_image = os.path.join(RES_DIR, f"{chip}_contact_resistance.png")
+            ax.set_xlim(xlim)
             ax.set_ylabel(r"$R_{cont}/R_{2P}$")
             plt.savefig(res_image)
             plt.close()
@@ -167,7 +139,7 @@ if __name__ == "__main__":
         'SPC2': {
             'nums': np.concatenate([
                 np.arange(1, 23),
-                np.arange(25, 31),
+                np.arange(24, 31),
             ])
         },
         'SPC3': {
@@ -180,8 +152,9 @@ if __name__ == "__main__":
         },
         'SQC1': {
             'nums': np.concatenate([
-                np.arange(7, 12),
-                np.arange(13, 37),
+                [7, 8, 10, 11],
+                np.arange(13, 23),
+                np.arange(25, 37),
             ])
         }
     }
@@ -189,10 +162,3 @@ if __name__ == "__main__":
     dh = a.DataHandler()
 
     main(dh, data_dict, pair_on_axis=False)
-
-    data_dict = {
-        'SPC2': {
-            'nums': [11, 18]
-        },
-    }
-    plot_fit(dh, data_dict)

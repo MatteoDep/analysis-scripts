@@ -38,8 +38,7 @@ class DataHandler:
     _PARAMS = {
         'only_return': True,
         'correct_offset': True,
-        'offset_mask_args': {'field_win': [-0.05, 0.05]*ur['V/um'], 'only_return': True},
-        'contact_resistance': 0*ur.ohm,
+        'offset_mask_args': {'field_win': [-0.01, 0.01]*ur['V/um'], 'only_return': True},
     }
     _UNITS = {
         'bias': ur.V,
@@ -173,7 +172,7 @@ class DataHandler:
             current = self.raw['current'] - np.mean(self.raw['current'][offset_mask])
         else:
             current = self.raw['current']
-        return self._process_quantity(current, method, mask).to(self._UNITS['current'])
+        return self._process_quantity(current, method=method, mask=mask).to(self._UNITS['current'])
 
     def get_conductance(self, method='all', mask=None, **params):
         """Calculate conductance."""
@@ -206,7 +205,8 @@ class DataHandler:
 
     @staticmethod
     def apply_mask(q, mask):
-        return np.where(mask, q, np.nan)
+        q = np.where(mask, q, np.nan)
+        return q
 
     @staticmethod
     def _process_quantity(q, method='all', mask=None):
@@ -214,15 +214,16 @@ class DataHandler:
             if mask is not None:
                 q = q[mask]
             q = average(q)
-        elif method != 'all':
+        elif method == 'all':
             if mask is not None:
                 q = __class__.apply_mask(q, mask)
+        else:
             raise ValueError(f'Unknown method {method}.')
         return q
 
     def _get_simple(self, key, method='all', mask=None):
         q = self.raw[key]
-        return self._process_quantity(q, method, mask).to(self._UNITS[key])
+        return self._process_quantity(q, method=method, mask=mask).to(self._UNITS[key])
 
     def _get_tmp_params(self, **params):
         for key in self._PARAMS:
@@ -256,7 +257,7 @@ class DataHandler:
             if mask is not None:
                 y = y[mask]
             # correct data
-            ax.plot(x.m, y.m, '.', label=label, c=color)
+            ax.plot(x.m, y.m, 'o', label=label, c=color)
             if set_xy_label:
                 ysym = sym_list[key_list.index(ykey)]
                 ax.set_ylabel(f"${ysym}$" + ulbl(y.u))

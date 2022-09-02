@@ -31,14 +31,12 @@ def get_temperature_dependence(dh, names, fields, delta_field, noise_level=DEFAU
         temperature_i = dh.get_temperature(method='average')
         temperature = np.append(temperature, temperature_i)
         mask_denoise = dh.get_mask(current_win=[noise_level, 1])
-        # full_conductance = dh.get_conductance()
-        # full_conductance_denoised = dh.get_conductance(mask=mask_denoise)
         full_conductance = dh.get_conductance(mask=mask_denoise)
         for j, field in enumerate(fields):
             field_win = [field - delta_field, field + delta_field]
             mask = dh.get_mask(field_win=field_win)
-            # if np.sum(a.isnan(full_conductance_denoised[mask])) < np.sum(mask):
             cond = np.sum(a.isnan(full_conductance[mask])) < 0.1 * np.sum(mask)
+            cond *= field_win[1] <= dh.prop['bias'] / dh.get_length()
             if cond:
                 conductance_i = a.average(full_conductance[mask])
             else:
@@ -47,13 +45,12 @@ def get_temperature_dependence(dh, names, fields, delta_field, noise_level=DEFAU
     return temperature, conductance
 
 
-def full(data_dict, adjust_alpha=False, plot_iv=False):
+def full(dh, data_dict, adjust_alpha=False):
     """Main analysis routine.
     names: list
     """
-    fields = np.concatenate([[0.02], np.arange(0.05, 2, 0.05)]) * ur['V/um']
-    delta_field = 0.01 * ur['V/um']
-    dh = a.DataHandler()
+    fields = np.concatenate([[0.01], np.arange(0.05, 2, 0.05)]) * ur['V/um']
+    delta_field = 0.005 * ur['V/um']
 
     if adjust_alpha:
         csv_path = os.path.join('results', EXPERIMENT, 'params_adjusted.csv')
@@ -87,9 +84,6 @@ def full(data_dict, adjust_alpha=False, plot_iv=False):
                 lowtemp_highbias_name = f"{chip}_{data_dict[chip][pair]['lowtemp_highbias_num']}"
             else:
                 lowtemp_highbias_name = names[0]
-            if plot_iv:
-                dp.plot_iv(dh, names, RES_DIR, zoom='auto')
-                dp.plot_iv(dh, [lowtemp_highbias_name], RES_DIR, zoom=False, appendix='_high_bias')
 
             df_index = np.nonzero(np.array((df['chip'] == chip) * (df['pair'] == pair)))[0]
 
@@ -97,10 +91,6 @@ def full(data_dict, adjust_alpha=False, plot_iv=False):
                 noise_level = data_dict[chip][pair]['noise_level']
             else:
                 noise_level = DEFAULT_NOISE_LEVEL
-            if 'contact_resistance' in data_dict[chip][pair]:
-                dh.set_default_params(contact_resistance=data_dict[chip][pair]['contact_resistance'])
-            else:
-                dh.set_default_params(contact_resistance=None)
             temperature, conductance = get_temperature_dependence(dh, names, fields_, delta_field, noise_level=noise_level)
 
             # High temperature dependence
@@ -181,10 +171,9 @@ def full(data_dict, adjust_alpha=False, plot_iv=False):
             dh.load(lowtemp_highbias_name)
             # mask = dh.get_mask(current_win=[10*ur.pA, 1])
             mask = dh.get_mask(field_win=[0.5*ur['V/um'], 1])
-            x = dh.get_bias()
+            x = dh.get_bias(mask=mask)
             y = dh.get_conductance(mask=mask)
-            x, y = a.strip_nan(x, y)
-            coeffs, model = a.fit_powerlaw(x, y, check_nan=False)
+            coeffs, model = a.fit_powerlaw(x, y)
             alpha1 = coeffs[0]
             alpha1_, dalpha1, _ = a.separate_measurement(alpha1)
             print("alpha1:", fmt(alpha1))
@@ -367,15 +356,12 @@ def nsites(data_dict, adjust_alpha=False):
     df_latex.set_index(['chip', 'pair']).style.to_latex(tex_path)
 
 
-def compare_stabtime(names):
+def compare_stabtime(dh, names):
     fields = [0.02] * ur['V/um']
-    delta_field = 0.01 * ur['V/um']
-    dh = a.DataHandler()
+    delta_field = 0.005 * ur['V/um']
 
     for chip in data_dict:
         dh.load_chip(chip)
-        RES_DIR = os.path.join('results', EXPERIMENT, chip)
-        os.makedirs(RES_DIR, exist_ok=True)
         for pair in data_dict[chip]:
             nums = data_dict[chip][pair]['nums']
             stabtime = [] * ur.s
@@ -439,7 +425,8 @@ class SliderSetter:
 
 
 if __name__ == "__main__":
-    adjust_alpha = True
+    dh = a.DataHandler()
+
     data_dict = {
         'SPC2': {
             "P2-P4": {
@@ -524,24 +511,22 @@ if __name__ == "__main__":
             },
         },
     }
-
     # data_dict_ = {'SPC2': {'P2-P4': data_dict['SPC2']['P2-P4']}}
     # data_dict_ = {k: v for k, v in data_dict.items() if k in ['SQC1', 'SLBC2']}
     # data_dict_ = {k: v for k, v in data_dict.items() if k in ['SQC1']}
-    data_dict_ = data_dict
-
-    full(data_dict_, adjust_alpha=adjust_alpha, plot_iv=False)
-    nsites(data_dict, adjust_alpha=adjust_alpha)
+    # data_dict_ = data_dict
+    # adjust_alpha = False
+    # full(dh, data_dict_, adjust_alpha=adjust_alpha)
+    # nsites(data_dict, adjust_alpha=adjust_alpha)
 
     data_dict = {
         'SPC2': {
             'P15-P16': {
                 'nums': {
-                    '10s': [301, 303, 305, 307, 309, 311, 313, 316, 318, 320, 328, 330, 332],
-                    '20s': [300, 302, 304, 306, 308, 310, 312, 315, 317, 319, 327, 329, 331],
+                    '10s': [300, 302, 304, 306, 308, 310, 312, 315, 317, 319, 327, 329, 331],
+                    '20s': [301, 303, 305, 307, 309, 311, 313, 316, 318, 320, 328, 330, 332],
                 }
             }
         }
     }
-
-    # compare_stabtime(data_dict)
+    compare_stabtime(dh, data_dict)
