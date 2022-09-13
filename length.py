@@ -11,7 +11,7 @@ from matplotlib import pyplot as plt
 from matplotlib import ticker
 import analysis as a
 from analysis import ur, fmt, ulbl
-from data_plotter import include_origin
+import data_plotter as dp
 
 
 EXPERIMENT = os.path.splitext(os.path.basename(__file__))[0]
@@ -89,7 +89,7 @@ def main(dh, data_dict, pair_on_axis=False):
                 ax.set_xlabel("Length" + ulbl(ux))
                 res_image = os.path.join(RES_DIR, f"{chip}_{inj}_resistance.png")
             ax.set_xlim(xlim)
-            ax = include_origin(ax, 'y')
+            ax = dp.include_origin(ax, 'y')
             ax.set_ylabel("$R$" + ulbl(uy))
             plt.savefig(res_image)
             plt.close()

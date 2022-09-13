@@ -11,7 +11,7 @@ from matplotlib import pyplot as plt
 
 from analysis import ur, fmt, ulbl
 import analysis as a
-from data_plotter import get_cbar_and_cols
+import data_plotter as dp
 
 
 EXPERIMENT = os.path.splitext(os.path.basename(__file__))[0]
@@ -96,7 +96,7 @@ def main(data_dict):
                 x_, dx, ux = a.separate_measurement(x)
                 fig, ax = plt.subplots(figsize=(12, 9))
                 fig.suptitle(f"Conductance ({chip} {pair} {temp_key})")
-                cbar, cols = get_cbar_and_cols(fig, fields_, vmin=0)
+                cbar, cols = dp.get_cbar_and_cols(fig, fields_, vmin=0)
                 for i, _ in enumerate(fields_):
                     y = conductance[i]
                     y_, dy, uy = a.separate_measurement(y)
