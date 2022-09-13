@@ -46,7 +46,7 @@ class DataHandler:
         'current': ur.A,
         'time': ur.s,
         'temperature': ur.K,
-        'conductance': ur.S,
+        'conductance': ur.nS,
         'resistance': ur.Mohm,
         'length': ur.m,
     }
