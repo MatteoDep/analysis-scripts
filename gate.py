@@ -27,18 +27,16 @@ def get_gate_dependence(dh, names, fields, delta_field):
         gate_ = dh.get_gate(method='average')
         gate = np.append(gate, gate_)
         mask_denoise = dh.get_mask(current_win=[0.5*ur.pA, 1])
-        full_conductance = dh.get_conductance()
-        full_conductance_denoised = dh.get_conductance(mask=mask_denoise)
+        full_conductance = dh.get_conductance(mask=mask_denoise)
         for j, field in enumerate(fields):
             field_win = [field - delta_field, field + delta_field]
-            if dh.prop['bias'] < field_win[1] * dh.get_length():
-                conductance_i = np.nan
+            mask = dh.get_mask(field_win=field_win)
+            cond = np.sum(a.isnan(full_conductance[mask])) < 0.1 * np.sum(mask)
+            cond *= field_win[1] <= dh.prop['bias'] / dh.get_length()
+            if cond:
+                conductance_i = a.average(full_conductance[mask])
             else:
-                mask = dh.get_mask(field_win=field_win)
-                if np.sum(a.isnan(full_conductance_denoised[mask])) < np.sum(mask):
-                    conductance_i = a.average(full_conductance[mask])
-                else:
-                    conductance_i = np.nan
+                conductance_i = np.nan
             conductance[j] = np.append(conductance[j], conductance_i)
     return gate, conductance
 

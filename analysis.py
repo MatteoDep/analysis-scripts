@@ -106,9 +106,7 @@ class DataHandler:
         if not isinstance(name, str):
             names = name
             for i, name in enumerate(names):
-                print(f"\rLoading {i+1} of {len(names)}.", end='', flush=True)
                 self.load(name)
-            print()
         else:
             self.name = name
             self.prop = self.props[name]
@@ -448,12 +446,9 @@ def ulbl(u):
 
 # ANALYSIS
 
-def average(x, ignore_err=False, already_separated=False, check_nan=True, debug=False):
+def average(x, ignore_err=False, check_nan=True, debug=False):
     """Calculate average with standard error."""
-    if already_separated:
-        x_, dx, ux = x
-    else:
-        x_, dx, ux = separate_measurement(x)
+    x_, dx, ux = ensure_separated(x)
     if ignore_err:
         dx = None
     if dx is not None:
@@ -472,12 +467,12 @@ def average(x, ignore_err=False, already_separated=False, check_nan=True, debug=
 
 def fit_powerlaw(x, y, offset=None, **kwargs):
     """Calculate 1D exponential fit (y = x^a * exp(b) + offset)."""
-    x_, dx, ux = separate_measurement(x)
-    y_, dy, uy = separate_measurement(y)
+    x_, dx, ux = ensure_separated(x)
+    y_, dy, uy = ensure_separated(y)
     if offset is None:
         offset = 0
     else:
-        offset = separate_measurement(offset)[0]
+        offset = ensure_separated(offset)[0]
     y_ -= offset
 
     # apply log
@@ -489,7 +484,7 @@ def fit_powerlaw(x, y, offset=None, **kwargs):
     y_ = np.log(y_[cond])
     uy = ur['']
 
-    coeffs, _ = fit_linear((x_, dx, ux), (y_, dy, uy), already_separated=True, **kwargs)
+    coeffs, _ = fit_linear((x_, dx, ux), (y_, dy, uy), **kwargs)
     if coeffs is None:
         return None, None
 
@@ -500,12 +495,12 @@ def fit_powerlaw(x, y, offset=None, **kwargs):
 
 def fit_exponential(x, y, offset=None, **kwargs):
     """Calculate 1D exponential fit (y = exp(a*x + b) + offset)."""
-    x_, dx, ux = separate_measurement(x)
-    y_, dy, uy = separate_measurement(y)
+    x_, dx, ux = ensure_separated(x)
+    y_, dy, uy = ensure_separated(y)
     if offset is None:
         offset = 0
     else:
-        offset = separate_measurement(offset)[0]
+        offset = ensure_separated(offset)[0]
     y_ -= offset
 
     # apply log
@@ -516,7 +511,7 @@ def fit_exponential(x, y, offset=None, **kwargs):
     y_ = np.log(y_[cond])
     uy = ur['']
 
-    coeffs, _ = fit_linear((x_, dx, ux), (y_, dy, uy), already_separated=True, **kwargs)
+    coeffs, _ = fit_linear((x_, dx, ux), (y_, dy, uy), **kwargs)
     if coeffs is None:
         return None, None
 
@@ -525,14 +520,10 @@ def fit_exponential(x, y, offset=None, **kwargs):
     return coeffs, lambda x, p=p, offset=offset: np.exp(p[0] * x + p[1]) + offset
 
 
-def fit_linear(x, y, ignore_err=False, already_separated=False, check_nan=True, debug=False):
+def fit_linear(x, y, ignore_err=False, check_nan=True, debug=False):
     """Calculate 1D linear fit (y = p[0] + p[1]*x)."""
-    if already_separated:
-        x_, dx, ux = x
-        y_, dy, uy = y
-    else:
-        x_, dx, ux = separate_measurement(x)
-        y_, dy, uy = separate_measurement(y)
+    x_, dx, ux = ensure_separated(x)
+    y_, dy, uy = ensure_separated(y)
     if ignore_err:
         dx = None
         dy = None
@@ -567,14 +558,10 @@ def fit_linear(x, y, ignore_err=False, already_separated=False, check_nan=True, 
     return coeffs, lambda x, p=p: p[0]*x + p[1]
 
 
-def fit_generic(x, y, f, beta0, units, log='', already_separated=False, ignore_err=False, check_nan=True, debug=False, **kwargs):
+def fit_generic(x, y, f, beta0, units, log='', ignore_err=False, check_nan=True, debug=False, **kwargs):
     """Fit curve defined by `f`."""
-    if already_separated:
-        x_, dx, _ = x
-        y_, dy, _ = y
-    else:
-        x_, dx, _ = separate_measurement(x)
-        y_, dy, _ = separate_measurement(y)
+    x_, dx, _ = ensure_separated(x)
+    y_, dy, _ = ensure_separated(y)
     if ignore_err:
         dx = None
         dy = None
@@ -589,10 +576,15 @@ def fit_generic(x, y, f, beta0, units, log='', already_separated=False, ignore_e
     if 'x' in log:
         cond *= (x_ > 0)
     if 'y' in log:
-        cond *= (x_ > 0)
+        cond *= (y_ > 0)
+        cond *= (f(beta0, x_) > 0)
     if 'x' in log:
         dx = dx[cond] / x_[cond] if dx is not None else None
         x_ = np.log(x_[cond])
+        if 'y' in log:
+            model = Model(lambda beta, x: np.log(f(beta, np.exp(x))))
+        else:
+            model = Model(lambda beta, x: f(beta, np.exp(x)))
     else:
         dx = dx[cond] if dx is not None else None
         x_ = x_[cond]
@@ -621,3 +613,10 @@ def fit_generic(x, y, f, beta0, units, log='', already_separated=False, ignore_e
         plt.show()
 
     return coeffs, lambda x, p=p: f(p, x)
+
+
+def ensure_separated(x):
+    if isinstance(x, tuple) or (isinstance(x, list) and len(x) == 3):
+        return x
+    else:
+        return separate_measurement(x)

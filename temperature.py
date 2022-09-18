@@ -9,6 +9,7 @@ import os
 import numpy as np
 from matplotlib import pyplot as plt
 from matplotlib.widgets import Slider, Button
+from matplotlib import ticker
 from scipy.special import gamma
 import pandas as pd
 
@@ -161,17 +162,19 @@ def full(dh, data_dict):
             x = temperature[indices]
             y = conductance[0][indices]
             x, y = a.strip_nan(x, y)
-            if np.sum(indices) > 1:
-                coeffs, model = a.fit_powerlaw(x, y, check_nan=False)
+            if len(x) > 1:
+                x_, dx, ux = a.separate_measurement(x)
+                y_, dy, uy = a.separate_measurement(y)
+                coeffs, model = a.fit_powerlaw((x_, dx, ux), (y_, dy, uy), check_nan=False)
                 alpha0 = coeffs[0]
                 alpha0_, dalpha0, _ = a.separate_measurement(alpha0)
                 print("alpha0:", fmt(alpha0))
-                x_, dx, ux = a.separate_measurement(x)
-                y_, dy, uy = a.separate_measurement(y)
                 ax1.errorbar(x_, y_, xerr=dx, yerr=dy, fmt='o', zorder=1, label='data')
                 ax1.plot(x_, model(x_), zorder=2, label=fr'fit ($\alpha_0 = {fmt(alpha0, latex=True)}$)')
             ax1.set_xscale('log')
             ax1.set_yscale('log')
+            ax1.xaxis.set_minor_formatter(ticker.ScalarFormatter())
+            ax1.xaxis.set_major_formatter(ticker.ScalarFormatter())
             ax1.set_xlabel(r"$T$" + ulbl(ux))
             ax1.set_ylabel(r"$G$" + ulbl(uy))
             ax1.legend()
@@ -180,18 +183,20 @@ def full(dh, data_dict):
             dh.load(lowtemp_highbias_name)
             # mask = dh.get_mask(current_win=[10*ur.pA, 1])
             mask = dh.get_mask(field_win=[0.5, 1]*ur['V/um'])
-            x = dh.get_bias(mask=mask)
+            x = dh.get_field(mask=mask)
             y = dh.get_conductance(mask=mask)
-            coeffs, model = a.fit_powerlaw(x, y)
+            x_, dx, ux = a.separate_measurement(x)
+            y_, dy, uy = a.separate_measurement(y)
+            coeffs, model = a.fit_powerlaw((x_, None, ux), (y_, dy, uy))
             alpha1 = coeffs[0]
             alpha1_, dalpha1, _ = a.separate_measurement(alpha1)
             print("alpha1:", fmt(alpha1))
-            x_, dx, ux = a.separate_measurement(x)
-            y_, dy, uy = a.separate_measurement(y)
-            ax2.errorbar(x_, y_, xerr=dx, yerr=dy, fmt='o', zorder=1, label='data')
+            ax2.errorbar(x_, y_, xerr=None, yerr=dy, fmt='o', zorder=1, label='data')
             ax2.plot(x_, model(x_), zorder=2, label=fr'fit ($\alpha_1 = {fmt(alpha1, latex=True)}$)')
             ax2.set_xscale('log')
             ax2.set_yscale('log')
+            ax2.xaxis.set_minor_formatter(ticker.ScalarFormatter())
+            ax2.xaxis.set_major_formatter(ticker.ScalarFormatter())
             ax2.set_xlabel(r"$E_b$" + ulbl(ux))
             ax2.set_ylabel(r"$G$" + ulbl(uy))
             ax2.legend()
@@ -217,9 +222,10 @@ def full(dh, data_dict):
             for i, name in enumerate(names[indices]):
                 dh.load(name)
                 mask = dh.get_mask(current_win=[6*noise_level, 1])
+                # mask = dh.get_mask(field_win=[0.02, 1]*ur['V/um'], current_win=[6*noise_level, 1])
                 temperature_i = dh.get_temperature()[mask]
                 bias_i = dh.get_bias()[mask]
-                current_i = dh.get_current()[mask]
+                current_i = dh.get_current()[mask].to('nA')
                 temperature.append(temperature_i.m)
                 current.append(current_i.m)
                 x.append((ur.e * bias_i / (2 * ur.k_B * temperature_i)).to(''))
@@ -243,7 +249,7 @@ def full(dh, data_dict):
                     line.set_ydata(y2_[i])
                 y2_ = np.concatenate(y2_)
                 ax.set_ylim([np.amin(y2_) / 3, 3 * np.amax(y2_)])
-                ax.set_ylabel(r'$I/T^{1+\alpha}$ ' + ulbl(ur.A / ur.K ** (1 + val)))
+                ax.set_ylabel(r'$I/T^{1+\alpha}$ ' + ulbl(ur.nA / ur.K ** (1 + val)))
                 fig.canvas.draw_idle()
                 return y2_
 
@@ -265,10 +271,10 @@ def full(dh, data_dict):
                     return i0 * np.sinh(x / ns0) * np.abs(gamma((2 + alpha)/2 + 1j*x/(np.pi*ns0)))**2
 
                 ns0 = 9 * length_
-                coeffs_units = [ur[''], ur.A]
+                coeffs_units = [ur[''], ur.nA]
                 coeffs, model = a.fit_generic(
-                    (x_, dx, None), (y_, None, None), f, [ns0, ns0*1e-25], coeffs_units,
-                    log='', already_separated=True, debug=False,
+                    (x_, None, None), (y_, None, None), f, [ns0, ns0*1e-16], coeffs_units,
+                    log='y', debug=False,
                 )
                 return coeffs, model
 
@@ -357,7 +363,7 @@ def nsites(data_dict):
             dy = np.array(df0['d_'+ykey])
             ax.errorbar(x_, y_, xerr=dx, yerr=dy, fmt='o', label=chip)
             if len(x_.shape) > 0:
-                _, model = a.fit_linear((x_, dx, ur.um), (y_, dy, ur['']), already_separated=True)
+                _, model = a.fit_linear((x_, dx, ur.um), (y_, dy, ur['']))
                 x_model = np.array([0, np.amax(x_)*1.1])
                 ax.plot(x_model, model(x_model), c='r')
         ax.set_xlabel('Length' + ulbl(ur.um))
@@ -366,6 +372,7 @@ def nsites(data_dict):
         fig.savefig(res_images[i])
         plt.close()
 
+    df = df.set_index(['chip', 'length']).sort_index().reset_index()
     df_latex = df.loc[:, ['chip', 'pair']]
     keys = ['length', 'act_energy', 'alpha0', 'alpha1', 'alpha2', 'ns0', 'ns2']
     titles = ['Length' + ulbl(ur.um), r'$U_A$' + ulbl(ur.meV), r'$\alpha_0$', r'$\alpha_1$', r'$\alpha_2$', r'$N_{sites,0}$', r'$N_{sites,2}$']
@@ -378,7 +385,18 @@ def nsites(data_dict):
             x = ['$' + fmt((l_ * ur['']).plus_minus(dl).m, latex=True) + '$' for l_, dl in zip(x_, dx)]
         df_latex[title] = x
     tex_path = os.path.join(RES_DIR, 'params.tex')
-    df_latex.set_index(['chip', 'pair']).style.to_latex(tex_path)
+    latex_str = df_latex.set_index(['chip', 'pair']).style.to_latex()
+    latex_list = latex_str.split('\n')
+    with open(tex_path, 'w') as f:
+        for i, line in enumerate(latex_list):
+            if i == 0:
+                line = line.replace('tabular}{ll', 'tabular}{ll|')
+            elif line.startswith('\\end'):
+                print(line, end='', file=f)
+                break
+            elif i > 2 and not line.startswith(' '):
+                print(r'\hline', file=f)
+            print(line, file=f)
 
 
 def high_temperature(dh, data_dict):
@@ -461,7 +479,7 @@ def compare_stabtime(dh, data_dict):
                 coeffs, model = a.fit_exponential(x, y)
                 act_energy = (- coeffs[0] * 100 * ur.k_B).to('meV')
                 print(f"Activation energy ({fmt(stabtime_i)}): {fmt(act_energy)}")
-                x_model = 100 / np.array([80, 350])
+                x_model = 100 / np.array([100, 350])
                 ax.plot(x_model, model(x_model), c=fit_cols[i], zorder=len(stabtime)+i,
                         label=fr"fit after ${fmt(stabtime_i, latex=True)}$ ($U_A={fmt(act_energy, latex=True)}$)")
             ax.legend()
@@ -531,6 +549,10 @@ if __name__ == "__main__":
                 ]),
                 'lowtemp_highbias_num': 277,
             },
+            "P1-P4": {
+                'nums': np.arange(335, 366),
+                'lowtemp_highbias_num': 334,
+            },
             "P16-P17": {
                 'nums': np.arange(227, 258),
                 'lowtemp_highbias_num': 281,
@@ -541,10 +563,6 @@ if __name__ == "__main__":
                     [301, 303, 305, 307, 309, 311, 313, 316, 318, 320, 328, 330, 332],
                 ]),
                 'lowtemp_highbias_num': 282,
-            },
-            "P1-P4": {
-                'nums': np.arange(335, 366),
-                'lowtemp_highbias_num': 334,
             },
             "P1-P15": {
                 'nums': np.arange(367, 396),
@@ -589,9 +607,9 @@ if __name__ == "__main__":
     # data_dict_ = {k: v for k, v in data_dict.items() if k in ['SQC1', 'SLBC2']}
     # data_dict_ = {k: v for k, v in data_dict.items() if k in ['SQC1']}
     data_dict_ = data_dict
-    full(dh, data_dict_)
-    nsites(data_dict)
-    high_temperature(dh, data_dict)
+    # full(dh, data_dict_)
+    # nsites(data_dict)
+    # high_temperature(dh, data_dict)
 
     data_dict = {
         'SPC2': {
