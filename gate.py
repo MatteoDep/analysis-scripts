@@ -8,6 +8,7 @@ Analize gate dependence.
 import os
 import numpy as np
 from matplotlib import pyplot as plt
+from matplotlib import ticker
 
 from analysis import ur, fmt, ulbl
 import analysis as a
@@ -21,7 +22,7 @@ os.makedirs(RES_DIR, exist_ok=True)
 
 def get_gate_dependence(dh, names, fields, delta_field):
     gate = [] * ur.V
-    conductance = [[] * ur.S for f in fields]
+    conductance = [[] * ur.nS for f in fields]
     for i, name in enumerate(names):
         dh.load(name)
         gate_ = dh.get_gate(method='average')
@@ -46,7 +47,7 @@ def main(data_dict):
     names: list
     """
     fields = np.arange(0.05, 2, 0.05) * ur['V/um']
-    delta_field = 0.01 * ur['V/um']
+    delta_field = 0.005 * ur['V/um']
     dh = a.DataHandler()
     for chip in data_dict:
         dh.load_chip(chip)
@@ -93,26 +94,51 @@ def main(data_dict):
                 x = gate
                 x_, dx, ux = a.separate_measurement(x)
                 fig, ax = plt.subplots(figsize=(12, 9))
-                fig.suptitle(f"Conductance ({chip} {pair} {temp_key})")
+                fig.suptitle("Gate Effect on Conductance")
                 cbar, cols = dp.get_cbar_and_cols(fig, fields_, vmin=0)
-                for i, _ in enumerate(fields_):
+                yminabs = None
+                ymaxabs = None
+                xspan = np.amax(x_) - np.amin(x_)
+                textcoord_index = np.argmax(x_)
+                xtext = x_[textcoord_index] + (0.05 * xspan)
+                for i, field in enumerate(fields_):
                     y = conductance[i]
                     y_, dy, uy = a.separate_measurement(y)
-                    for d, (j0, j1) in zip(directions, ranges):
-                        ax.errorbar(x_[j0:j1], y_[j0:j1],
-                                    xerr=dx[j0:j1] if dx is not None else None,
-                                    yerr=dy[j0:j1] if dx is not None else None,
-                                    ls=ls[d], marker=ms[d], zorder=i, c=cols[i])
+                    if not np.isnan(y_).all():
+                        ymin = np.nanmin(y_)
+                        ymax = np.nanmax(y_)
+                        if yminabs is None or ymin < yminabs:
+                            yminabs = ymin
+                        if ymaxabs is None or ymax > ymaxabs:
+                            ymaxabs = ymax
+                        for d, (j0, j1) in zip(directions, ranges):
+                            ax.errorbar(x_[j0:j1], y_[j0:j1],
+                                        xerr=dx[j0:j1] if dx is not None else None,
+                                        yerr=dy[j0:j1] if dx is not None else None,
+                                        ls=ls[d], marker=ms[d], zorder=i, c=cols[i])
+                        ytext = y_[textcoord_index]
+                        ax.text(xtext, ytext, fr'${ymax/ymin:.2f}$')
+                # yspan = ymaxabs - yminabs
+                ax.set_yscale('log')
+                matinv = ax.transLimits
+                mat = matinv.inverted()
+                xtext, ytext = mat.transform(matinv.transform([xtext, np.log10(ytext)]) + np.array([-0.2, 0.1]))
+                ax.text(xtext, 10**ytext, r'$G_{max}/G_{min}:$')
+                ax.yaxis.set_major_formatter(ticker.ScalarFormatter())
+                if ymaxabs / yminabs < 5:
+                    ax.yaxis.set_minor_formatter(ticker.ScalarFormatter())
+                (xmin, ymin), (xmax, ymax) = mat.transform([[0, 0], [1.12, 1.2]])
+                ax.set_xlim([xmin, xmax])
+                ax.set_ylim([10**ymin, 10**ymax])
                 ax.legend(handles=[
                     plt.Line2D([0], [0], color='k', linestyle=ls[d], marker=ms[d], label=f"sweep {d}")
                     for d in ['up', 'down'] if d in directions
-                ])
+                ], loc='upper left')
                 ax.set_xlabel(r"$V_G$" + ulbl(ux))
                 ax.set_ylabel(r"$G$" + ulbl(uy))
-                ax.set_yscale('log')
                 cbar.ax.set_ylabel("$E_{{bias}}$" + ulbl(fields_.u))
                 res_image = os.path.join(RES_DIR, f"{chip}_{pair}_{temp_key}_gate_dep.png")
-                fig.savefig(res_image)
+                fig.savefig(res_image, bbox_inches='tight')
                 plt.close()
 
 

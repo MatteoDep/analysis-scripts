@@ -132,7 +132,7 @@ def full(dh, data_dict):
             x = 100 / temperature
             x_, dx, ux = a.separate_measurement(x)
             fig, ax = plt.subplots()
-            fig.suptitle("Conductance")
+            fig.suptitle("Conductance Temperature dependence")
             cbar, cols = dp.get_cbar_and_cols(fig, fields_, vmin=0)
             for i, field in enumerate(fields_):
                 y = conductance[i]
@@ -607,9 +607,9 @@ if __name__ == "__main__":
     # data_dict_ = {k: v for k, v in data_dict.items() if k in ['SQC1', 'SLBC2']}
     # data_dict_ = {k: v for k, v in data_dict.items() if k in ['SQC1']}
     data_dict_ = data_dict
-    # full(dh, data_dict_)
-    # nsites(data_dict)
-    # high_temperature(dh, data_dict)
+    full(dh, data_dict_)
+    nsites(data_dict)
+    high_temperature(dh, data_dict)
 
     data_dict = {
         'SPC2': {
