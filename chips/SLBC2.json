@@ -1,9 +1,9 @@
 {
     "layout": [
-        { "type": "contact", "width": 50 },
-        { "type": "spacing", "width": 100 },
-        { "type": "contact", "width": 50 },
-        { "type": "spacing", "width": 100 },
-        { "type": "contact", "width": 50 }
+        { "type": "contact", "width": 100 },
+        { "type": "spacing", "width": 300 },
+        { "type": "contact", "width": 100 },
+        { "type": "spacing", "width": 300 },
+        { "type": "contact", "width": 100 }
     ]
 }

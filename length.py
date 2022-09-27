@@ -84,10 +84,10 @@ def main(dh, data_dict, pair_on_axis=False):
                 ax.xaxis.set_major_formatter(ticker.FixedFormatter((pair_label[inj])))
                 plt.setp(ax.get_xticklabels(), rotation=60, horizontalalignment='right', fontsize='x-small')
                 fig.tight_layout()
-                res_image = os.path.join(RES_DIR, f"{chip}_{inj}_resistance_pairs.png")
+                res_image = os.path.join(RES_DIR, f"{chip}_{inj}_resistance_pairs.pdf")
             else:
                 ax.set_xlabel("Length" + ulbl(ux))
-                res_image = os.path.join(RES_DIR, f"{chip}_{inj}_resistance.png")
+                res_image = os.path.join(RES_DIR, f"{chip}_{inj}_resistance.pdf")
             ax.set_xlim(xlim)
             ax = dp.include_origin(ax, 'y')
             ax.set_ylabel("$R$" + ulbl(uy))
@@ -97,6 +97,7 @@ def main(dh, data_dict, pair_on_axis=False):
         # make compatible
         if '2p' in injs and '4p' in injs:
             common_length = [] * ur.um
+            contact_resistance = [] * ur.Mohm
             contact_resistance_rel = []
             common_pair_label = []
             for i, p in enumerate(pair['2p']):
@@ -104,14 +105,30 @@ def main(dh, data_dict, pair_on_axis=False):
                     if p_ == p:
                         common_length = np.append(common_length, length['2p'][i])
                         common_pair_label = np.append(common_pair_label, f"{p}\n{length['2p'][i]}")
-                        contact_resistance_rel = np.append(
-                            contact_resistance_rel,
-                            (resistance['2p'][i] - resistance['4p'][j]) / resistance['2p'][i]
-                        )
-            # common_length = length['2p']
-            # common_pair_label = pair_label['2p']
-            # contact_resistance_rel = (resistance['2p'] - length['2p'] * coeffs[0]) / resistance['2p']
+                        contact_resistance = np.append(contact_resistance, (resistance['2p'][i] - resistance['4p'][j]))
+                        contact_resistance_rel = np.append(contact_resistance_rel, contact_resistance[-1] / resistance['2p'][i])
             figsize = (0.15 * np.amax(a.separate_measurement(common_length)[0]), 9) if pair_on_axis else None
+            fig, ax = plt.subplots(figsize=figsize)
+            fig.suptitle("Contact Resistance")
+            x = common_length
+            x_, dx, ux = a.separate_measurement(x)
+            y = contact_resistance
+            y_, dy, uy = a.separate_measurement(y)
+            ax.errorbar(x_, y_, xerr=dx, yerr=dy, fmt='o')
+            if pair_on_axis:
+                ax.xaxis.set_major_locator(ticker.FixedLocator((x_)))
+                ax.xaxis.set_major_formatter(ticker.FixedFormatter((common_pair_label)))
+                plt.setp(ax.get_xticklabels(), rotation=60, horizontalalignment='right', fontsize='x-small')
+                fig.tight_layout()
+                res_image = os.path.join(RES_DIR, f"{chip}_contact_resistance_pairs.pdf")
+            else:
+                ax.set_xlabel("Length" + ulbl(ux))
+                res_image = os.path.join(RES_DIR, f"{chip}_contact_resistance.pdf")
+            ax.set_xlim(xlim)
+            ax.set_ylabel(r"$R_{cont}$")
+            plt.savefig(res_image)
+            plt.close()
+
             fig, ax = plt.subplots(figsize=figsize)
             fig.suptitle("Relative Contact Resistance")
             x = common_length
@@ -124,10 +141,10 @@ def main(dh, data_dict, pair_on_axis=False):
                 ax.xaxis.set_major_formatter(ticker.FixedFormatter((common_pair_label)))
                 plt.setp(ax.get_xticklabels(), rotation=60, horizontalalignment='right', fontsize='x-small')
                 fig.tight_layout()
-                res_image = os.path.join(RES_DIR, f"{chip}_contact_resistance_pairs.png")
+                res_image = os.path.join(RES_DIR, f"{chip}_rel_contact_resistance_pairs.pdf")
             else:
                 ax.set_xlabel("Length" + ulbl(ux))
-                res_image = os.path.join(RES_DIR, f"{chip}_contact_resistance.png")
+                res_image = os.path.join(RES_DIR, f"{chip}_rel_contact_resistance.pdf")
             ax.set_xlim(xlim)
             ax.set_ylabel(r"$R_{cont}/R_{2P}$")
             plt.savefig(res_image)

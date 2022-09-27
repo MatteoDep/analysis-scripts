@@ -60,7 +60,6 @@ def full(dh, data_dict):
                 'pair2: ...
             'chipB': ...
         }
-    :param adjust_alpha: Use manually adjusted alpha.
     """
     fields = np.concatenate([[0.01], np.arange(0.05, 2, 0.05)]) * ur['V/um']
     delta_field = 0.005 * ur['V/um']
@@ -124,7 +123,7 @@ def full(dh, data_dict):
                 ax.set_xlabel(r"$100/T$" + ulbl(ux))
                 ax.set_ylabel(r"$G$" + ulbl(uy))
                 ax.set_yscale('log')
-                res_image = os.path.join(RES_DIR, f"{chip}_{pair}_high_temperature.png")
+                res_image = os.path.join(RES_DIR, f"{chip}_{pair}_high_temperature.pdf")
                 fig.savefig(res_image)
                 plt.close()
 
@@ -147,7 +146,7 @@ def full(dh, data_dict):
             ax.set_ylabel(r"$G$" + ulbl(uy))
             ax.set_yscale('log')
             cbar.ax.set_ylabel("$E_{bias}$" + ulbl(fields_.u))
-            res_image = os.path.join(RES_DIR, f"{chip}_{pair}_temperature_dep.png")
+            res_image = os.path.join(RES_DIR, f"{chip}_{pair}_temperature_dep.pdf")
             fig.savefig(res_image)
             plt.close()
 
@@ -201,7 +200,7 @@ def full(dh, data_dict):
             ax2.set_ylabel(r"$G$" + ulbl(uy))
             ax2.legend()
             fig.tight_layout()
-            res_image = os.path.join(RES_DIR, f"{chip}_{pair}_power_law.png")
+            res_image = os.path.join(RES_DIR, f"{chip}_{pair}_power_law.pdf")
             fig.savefig(res_image)
             plt.close()
 
@@ -221,8 +220,7 @@ def full(dh, data_dict):
             lines = []
             for i, name in enumerate(names[indices]):
                 dh.load(name)
-                mask = dh.get_mask(current_win=[6*noise_level, 1])
-                # mask = dh.get_mask(field_win=[0.02, 1]*ur['V/um'], current_win=[6*noise_level, 1])
+                mask = dh.get_mask(field_win=[0, 1], current_win=[6*noise_level, 1])
                 temperature_i = dh.get_temperature()[mask]
                 bias_i = dh.get_bias()[mask]
                 current_i = dh.get_current()[mask].to('nA')
@@ -265,7 +263,7 @@ def full(dh, data_dict):
                 alpha2 = a.q_from_df(df.loc[df_index], 'alpha2').m
             print("alpha2:", fmt(alpha2))
 
-            def fit_scaling_curve(alpha, y_):
+            def fit_scaling_curve(alpha, y_, factor):
                 def f(beta, x):
                     ns0, i0 = beta
                     return i0 * np.sinh(x / ns0) * np.abs(gamma((2 + alpha)/2 + 1j*x/(np.pi*ns0)))**2
@@ -273,8 +271,8 @@ def full(dh, data_dict):
                 ns0 = 9 * length_
                 coeffs_units = [ur[''], ur.nA]
                 coeffs, model = a.fit_generic(
-                    (x_, None, None), (y_, None, None), f, [ns0, ns0*1e-16], coeffs_units,
-                    log='y', debug=False,
+                    (x_, None, None), (y_, None, None), f, [ns0, ns0*factor], coeffs_units,
+                    log='xy', debug=False,
                 )
                 return coeffs, model
 
@@ -282,7 +280,7 @@ def full(dh, data_dict):
             fig.suptitle('Universal Scaling Curve')
             y_ = update(alpha0_)
             txt = ax.text(0.17, 0.8, fr'$\alpha_0 = {fmt(alpha0, latex=True)}$', transform=ax.transAxes)
-            (ns0, i0), model = fit_scaling_curve(alpha0_, y_)
+            (ns0, i0), model = fit_scaling_curve(alpha0_, y_, 1e-16)
             ns0_, dns0, _ = a.separate_measurement(ns0)
             i0_, di0, _ = a.separate_measurement(i0)
             print(f'ns0: {fmt(ns0)}\ni0: {fmt(i0)}')
@@ -290,21 +288,21 @@ def full(dh, data_dict):
             label = fr'fit ($N_{{sites,0}} = {fmt(ns0, latex=True)}$)'
             fit_line, = ax.plot(x_model, model(x_model), c='r', label=label)
             ax.legend()
-            res_image = os.path.join(RES_DIR, f"{chip}_{pair}_universal_scaling.png")
+            res_image = os.path.join(RES_DIR, f"{chip}_{pair}_universal_scaling.pdf")
             fig.savefig(res_image)
 
             # using alpha2
             fig.suptitle(r'Universal Scaling Curve - Adjusted $\alpha$')
             y2_ = update(alpha2)
             txt.set_text(fr'$\alpha_2 = {fmt(alpha2, latex=True)}$')
-            (ns2, i02), model = fit_scaling_curve(alpha2, y2_)
+            (ns2, i02), model = fit_scaling_curve(alpha2, y2_, 1e-18)
             ns2_, dns2, _ = a.separate_measurement(ns2)
             i02_, di02, _ = a.separate_measurement(i02)
             fit_line.set_ydata(model(x_model))
             fit_line.set_label(fr'fit ($N_{{sites,2}} = {fmt(ns2, latex=True)}$)')
             print(f'ns2: {fmt(ns2)}\ni02: {fmt(i02)}')
             ax.legend()
-            res_image = os.path.join(RES_DIR, f"{chip}_{pair}_universal_scaling_adjusted.png")
+            res_image = os.path.join(RES_DIR, f"{chip}_{pair}_universal_scaling_adjusted.pdf")
             fig.savefig(res_image)
             plt.close()
 
@@ -345,8 +343,8 @@ def nsites(data_dict):
 
     ykeys = ['ns0', 'ns2']
     res_images = [
-        os.path.join(RES_DIR, "number_of_sites.png"),
-        os.path.join(RES_DIR, "number_of_sites_adjusted.png"),
+        os.path.join(RES_DIR, "number_of_sites.pdf"),
+        os.path.join(RES_DIR, "number_of_sites_adjusted.pdf"),
     ]
     titles = [
         'Number of Sites',
@@ -444,7 +442,7 @@ def high_temperature(dh, data_dict):
         for m, chip in zip(np.unique(markers), data_dict.keys())
     ])
     ax.set_yscale('log')
-    res_image = os.path.join(RES_DIR, "act_energy_all.png")
+    res_image = os.path.join(RES_DIR, "act_energy_all.pdf")
     fig.savefig(res_image)
     plt.close()
 
@@ -486,7 +484,7 @@ def compare_stabtime(dh, data_dict):
             ax.set_xlabel(r"$100/T$" + ulbl(ux))
             ax.set_ylabel(r"$G$" + ulbl(uy))
             ax.set_yscale('log')
-            res_image = os.path.join(RES_DIR, f"{chip}_{pair}_stabtime_comparison.png")
+            res_image = os.path.join(RES_DIR, f"{chip}_{pair}_stabtime_comparison.pdf")
             fig.savefig(res_image)
             plt.close()
 

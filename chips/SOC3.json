@@ -1,4 +1,5 @@
 {
+    "filename": "JRVANDERVEEN_FEB22_LW4UM.dxf",
     "layout": [
         { "type": "contact", "width": 10 },
         { "type": "spacing", "width": 22.5 },
@@ -10,7 +11,7 @@
 
         { "type": "spacing", "width": 4 },
         { "type": "contact", "width": 3 },
-        { "type": "spacing", "width": 4 },
+        { "type": "spacing", "width": 3 },
         { "type": "contact", "width": 3 },
         { "type": "spacing", "width": 4 },
         { "type": "contact", "width": 3 },

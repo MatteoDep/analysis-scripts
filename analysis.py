@@ -232,7 +232,7 @@ class DataHandler:
     def get_length(self):
         return self.cp.get_distance(self.prop['pair'])
 
-    def plot(self, ax, mode='i/v', mask=None, label=None,
+    def plot(self, ax, mode='i/v', mask=None, notraw=False, label=None,
              color=None, set_xy_label=True, to_compact=['current']):
         key_short_list = ['t', 'v', 'vg', 'i']
         key_list = ['time', 'bias', 'gate', 'current']
@@ -240,7 +240,10 @@ class DataHandler:
         ykeys, xkey = mode.split('/')
         xkey = key_list[key_short_list.index(xkey)]
         ykeys = [key_list[key_short_list.index(ykey)] for ykey in ykeys.split('-')]
-        x = self.raw[xkey]
+        if notraw:
+            x = getattr(self, f'get_{xkey}')()
+        else:
+            x = self.raw[xkey]
         if xkey in to_compact:
             x = q_to_compact(x)
         if mask is not None:
@@ -249,7 +252,10 @@ class DataHandler:
             label = label.replace('{', '{0.').format(self)
 
         for ykey in ykeys:
-            y = self.raw[ykey]
+            if notraw:
+                y = getattr(self, f'get_{ykey}')()
+            else:
+                y = self.raw[ykey]
             if ykey in to_compact:
                 y = q_to_compact(y)
             if mask is not None:
@@ -451,9 +457,11 @@ def average(x, ignore_err=False, check_nan=True, debug=False):
     x_, dx, ux = ensure_separated(x)
     if ignore_err:
         dx = None
+
     if dx is not None:
         cond = dx == 0
         dx[cond] = np.nanmin(dx[np.where(cond, False, True)])/2
+
     if check_nan:
         x_, dx = strip_nan(x_, dx)
 
@@ -469,6 +477,7 @@ def fit_powerlaw(x, y, offset=None, **kwargs):
     """Calculate 1D exponential fit (y = x^a * exp(b) + offset)."""
     x_, dx, ux = ensure_separated(x)
     y_, dy, uy = ensure_separated(y)
+
     if offset is None:
         offset = 0
     else:
@@ -497,6 +506,7 @@ def fit_exponential(x, y, offset=None, **kwargs):
     """Calculate 1D exponential fit (y = exp(a*x + b) + offset)."""
     x_, dx, ux = ensure_separated(x)
     y_, dy, uy = ensure_separated(y)
+
     if offset is None:
         offset = 0
     else:
@@ -524,12 +534,16 @@ def fit_linear(x, y, ignore_err=False, check_nan=True, debug=False):
     """Calculate 1D linear fit (y = p[0] + p[1]*x)."""
     x_, dx, ux = ensure_separated(x)
     y_, dy, uy = ensure_separated(y)
+
     if ignore_err:
         dx = None
         dy = None
+
+    # error cannot be zero, change to small value (only on y is  ok)
     if dy is not None:
         cond = dy == 0
         dy[cond] = np.nanmin(dy[np.where(cond, False, True)])/2
+
     if check_nan:
         x_, dx, y_, dy = strip_nan(x_, dx, y_, dy)
 
@@ -562,12 +576,16 @@ def fit_generic(x, y, f, beta0, units, log='', ignore_err=False, check_nan=True,
     """Fit curve defined by `f`."""
     x_, dx, _ = ensure_separated(x)
     y_, dy, _ = ensure_separated(y)
+
     if ignore_err:
         dx = None
         dy = None
+
+    # error cannot be zero, change to small value (only on y is  ok)
     if dy is not None:
         cond = dy == 0
         dy[cond] = np.nanmin(dy[np.where(cond, False, True)])/2
+
     if check_nan:
         x_, dx, y_, dy = strip_nan(x_, dx, y_, dy)
 
@@ -581,21 +599,27 @@ def fit_generic(x, y, f, beta0, units, log='', ignore_err=False, check_nan=True,
     if 'x' in log:
         dx = dx[cond] / x_[cond] if dx is not None else None
         x_ = np.log(x_[cond])
-        if 'y' in log:
-            model = Model(lambda beta, x: np.log(f(beta, np.exp(x))))
-        else:
-            model = Model(lambda beta, x: f(beta, np.exp(x)))
     else:
         dx = dx[cond] if dx is not None else None
         x_ = x_[cond]
     if 'y' in log:
         dy = dy[cond] / y_[cond] if dy is not None else None
         y_ = np.log(y_[cond])
-        model = Model(lambda beta, x: np.log(f(beta, x)))
     else:
         dy = dy[cond] if dy is not None else None
         y_ = y_[cond]
+
+    # get appropriate model
+    if log == '':
         model = Model(f)
+    elif log == 'x':
+        model = Model(lambda beta, x: f(beta, np.exp(x)))
+    elif log == 'y':
+        model = Model(lambda beta, x: np.log(f(beta, x)))
+    elif log == 'xy':
+        model = Model(lambda beta, x: np.log(f(beta, np.exp(x))))
+    else:
+        raise ValueError(f"Parameter 'log' can be '', 'x', 'y' or 'xy', not '{log}'.")
 
     data = RealData(x_, y_, sx=dx, sy=dy)
     odr = ODR(data, model, beta0=beta0, **kwargs)

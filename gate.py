@@ -98,13 +98,14 @@ def main(data_dict):
                 cbar, cols = dp.get_cbar_and_cols(fig, fields_, vmin=0)
                 yminabs = None
                 ymaxabs = None
-                xspan = np.amax(x_) - np.amin(x_)
+                xspace = 0.05 * (np.amax(x_) - np.amin(x_))
                 textcoord_index = np.argmax(x_)
-                xtext = x_[textcoord_index] + (0.05 * xspan)
+                xtext = x_[textcoord_index] + xspace
                 for i, field in enumerate(fields_):
                     y = conductance[i]
                     y_, dy, uy = a.separate_measurement(y)
-                    if not np.isnan(y_).all():
+                    maskout = np.isnan(y_)
+                    if not maskout.all():
                         ymin = np.nanmin(y_)
                         ymax = np.nanmax(y_)
                         if yminabs is None or ymin < yminabs:
@@ -116,9 +117,9 @@ def main(data_dict):
                                         xerr=dx[j0:j1] if dx is not None else None,
                                         yerr=dy[j0:j1] if dx is not None else None,
                                         ls=ls[d], marker=ms[d], zorder=i, c=cols[i])
+                        textcoord_index = np.argmax(np.where(maskout, -np.inf, x_))
                         ytext = y_[textcoord_index]
                         ax.text(xtext, ytext, fr'${ymax/ymin:.2f}$')
-                # yspan = ymaxabs - yminabs
                 ax.set_yscale('log')
                 matinv = ax.transLimits
                 mat = matinv.inverted()
@@ -137,7 +138,7 @@ def main(data_dict):
                 ax.set_xlabel(r"$V_G$" + ulbl(ux))
                 ax.set_ylabel(r"$G$" + ulbl(uy))
                 cbar.ax.set_ylabel("$E_{{bias}}$" + ulbl(fields_.u))
-                res_image = os.path.join(RES_DIR, f"{chip}_{pair}_{temp_key}_gate_dep.png")
+                res_image = os.path.join(RES_DIR, f"{chip}_{pair}_{temp_key}_gate_dep.pdf")
                 fig.savefig(res_image, bbox_inches='tight')
                 plt.close()
 
