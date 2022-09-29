@@ -37,12 +37,18 @@ def get_temperature_dependence(dh, names, fields, delta_field, noise_level=DEFAU
         for j, field in enumerate(fields):
             field_win = [field - delta_field, field + delta_field]
             mask = dh.get_mask(field_win=field_win)
-            cond = np.sum(a.isnan(full_conductance[mask])) < 0.1 * np.sum(mask)
-            cond *= field_win[1] <= dh.prop['bias'] / dh.get_length()
-            if cond:
-                conductance_i = a.average(full_conductance[mask])
+            if field == 0 * ur['V/um']:
+                cond = np.sum(a.isnan(full_conductance[mask])) < 0.9 * np.sum(mask)
+                if cond:
+                    conductance_i = dh.get_conductance(method='fit', mask=mask)
+                else:
+                    conductance_i = np.nan
             else:
-                conductance_i = np.nan
+                cond = (np.sum(a.isnan(full_conductance[mask])) < 0.1 * np.sum(mask)) * (field_win[1] <= dh.prop['bias'] / dh.get_length())
+                if cond:
+                    conductance_i = a.average(full_conductance[mask])
+                else:
+                    conductance_i = np.nan
             conductance[j] = np.append(conductance[j], conductance_i)
     return temperature, conductance
 
@@ -61,7 +67,7 @@ def full(dh, data_dict):
             'chipB': ...
         }
     """
-    fields = np.concatenate([[0.01], np.arange(0.05, 2, 0.05)]) * ur['V/um']
+    fields = np.arange(0, 2, 0.05) * ur['V/um']
     delta_field = 0.005 * ur['V/um']
 
     csv_path = os.path.join('results', EXPERIMENT, 'params.csv')
@@ -87,12 +93,16 @@ def full(dh, data_dict):
             length = dh.get_length()
             length_, dlength, _ = a.separate_measurement(length)
             print(f"Chip {chip}, Pair {pair} of length {fmt(length)}.")
-            fields_ = fields[(fields + delta_field) * length < dh.prop['bias']]
 
             if 'lowtemp_highbias_num' in data_dict[chip][pair]:
                 lowtemp_highbias_name = f"{chip}_{data_dict[chip][pair]['lowtemp_highbias_num']}"
             else:
                 lowtemp_highbias_name = names[0]
+            max_field = dh.prop['bias'] / dh.get_length()
+            fact = max(a.separate_measurement((fields[4] + delta_field) // max_field)[0] + 1, 1)
+            fields_ = fields / fact
+            delta_field_ = delta_field / fact
+            fields_ = fields_[fields_ + delta_field_ < max_field]
 
             df_index = np.nonzero(np.array((df['chip'] == chip) * (df['pair'] == pair)))[0]
 
@@ -123,7 +133,7 @@ def full(dh, data_dict):
                 ax.set_xlabel(r"$100/T$" + ulbl(ux))
                 ax.set_ylabel(r"$G$" + ulbl(uy))
                 ax.set_yscale('log')
-                res_image = os.path.join(RES_DIR, f"{chip}_{pair}_high_temperature.pdf")
+                res_image = os.path.join(RES_DIR, f"{chip}_{pair}_high_temperature.png")
                 fig.savefig(res_image)
                 plt.close()
 
@@ -146,7 +156,7 @@ def full(dh, data_dict):
             ax.set_ylabel(r"$G$" + ulbl(uy))
             ax.set_yscale('log')
             cbar.ax.set_ylabel("$E_{bias}$" + ulbl(fields_.u))
-            res_image = os.path.join(RES_DIR, f"{chip}_{pair}_temperature_dep.pdf")
+            res_image = os.path.join(RES_DIR, f"{chip}_{pair}_temperature_dep.png")
             fig.savefig(res_image)
             plt.close()
 
@@ -159,7 +169,7 @@ def full(dh, data_dict):
             # power law temperature dependence at low bias
             indices = a.is_between(temperature, [20, 110]*ur.K)
             x = temperature[indices]
-            y = conductance[0][indices]
+            y = conductance[1][indices]
             x, y = a.strip_nan(x, y)
             if len(x) > 1:
                 x_, dx, ux = a.separate_measurement(x)
@@ -181,7 +191,8 @@ def full(dh, data_dict):
             # power law bias dependence at low temperature
             dh.load(lowtemp_highbias_name)
             # mask = dh.get_mask(current_win=[10*ur.pA, 1])
-            mask = dh.get_mask(field_win=[0.5, 1]*ur['V/um'])
+            field_win = [0.5, 1]*ur['V/um'] / fact
+            mask = dh.get_mask(field_win=field_win)
             x = dh.get_field(mask=mask)
             y = dh.get_conductance(mask=mask)
             x_, dx, ux = a.separate_measurement(x)
@@ -200,7 +211,7 @@ def full(dh, data_dict):
             ax2.set_ylabel(r"$G$" + ulbl(uy))
             ax2.legend()
             fig.tight_layout()
-            res_image = os.path.join(RES_DIR, f"{chip}_{pair}_power_law.pdf")
+            res_image = os.path.join(RES_DIR, f"{chip}_{pair}_power_law.png")
             fig.savefig(res_image)
             plt.close()
 
@@ -277,7 +288,7 @@ def full(dh, data_dict):
                 return coeffs, model
 
             # using alpha0
-            fig.suptitle('Universal Scaling Curve')
+            fig.suptitle(r'Universal Scaling Curve - Using $\alpha_0$')
             y_ = update(alpha0_)
             txt = ax.text(0.17, 0.8, fr'$\alpha_0 = {fmt(alpha0, latex=True)}$', transform=ax.transAxes)
             (ns0, i0), model = fit_scaling_curve(alpha0_, y_, 1e-16)
@@ -288,11 +299,11 @@ def full(dh, data_dict):
             label = fr'fit ($N_{{sites,0}} = {fmt(ns0, latex=True)}$)'
             fit_line, = ax.plot(x_model, model(x_model), c='r', label=label)
             ax.legend()
-            res_image = os.path.join(RES_DIR, f"{chip}_{pair}_universal_scaling.pdf")
+            res_image = os.path.join(RES_DIR, f"{chip}_{pair}_universal_scaling.png")
             fig.savefig(res_image)
 
             # using alpha2
-            fig.suptitle(r'Universal Scaling Curve - Adjusted $\alpha$')
+            fig.suptitle(r'Universal Scaling Curve - Using manual $\alpha$')
             y2_ = update(alpha2)
             txt.set_text(fr'$\alpha_2 = {fmt(alpha2, latex=True)}$')
             (ns2, i02), model = fit_scaling_curve(alpha2, y2_, 1e-18)
@@ -302,7 +313,7 @@ def full(dh, data_dict):
             fit_line.set_label(fr'fit ($N_{{sites,2}} = {fmt(ns2, latex=True)}$)')
             print(f'ns2: {fmt(ns2)}\ni02: {fmt(i02)}')
             ax.legend()
-            res_image = os.path.join(RES_DIR, f"{chip}_{pair}_universal_scaling_adjusted.pdf")
+            res_image = os.path.join(RES_DIR, f"{chip}_{pair}_universal_scaling_adjusted.png")
             fig.savefig(res_image)
             plt.close()
 
@@ -343,8 +354,8 @@ def nsites(data_dict):
 
     ykeys = ['ns0', 'ns2']
     res_images = [
-        os.path.join(RES_DIR, "number_of_sites.pdf"),
-        os.path.join(RES_DIR, "number_of_sites_adjusted.pdf"),
+        os.path.join(RES_DIR, "number_of_sites.png"),
+        os.path.join(RES_DIR, "number_of_sites_adjusted.png"),
     ]
     titles = [
         'Number of Sites',
@@ -398,7 +409,7 @@ def nsites(data_dict):
 
 
 def high_temperature(dh, data_dict):
-    fields = [0.01] * ur['V/um']
+    fields = [0] * ur['V/um']
     delta_field = 0.005 * ur['V/um']
 
     x = []
@@ -442,7 +453,7 @@ def high_temperature(dh, data_dict):
         for m, chip in zip(np.unique(markers), data_dict.keys())
     ])
     ax.set_yscale('log')
-    res_image = os.path.join(RES_DIR, "act_energy_all.pdf")
+    res_image = os.path.join(RES_DIR, "act_energy_all.png")
     fig.savefig(res_image)
     plt.close()
 
@@ -484,7 +495,7 @@ def compare_stabtime(dh, data_dict):
             ax.set_xlabel(r"$100/T$" + ulbl(ux))
             ax.set_ylabel(r"$G$" + ulbl(uy))
             ax.set_yscale('log')
-            res_image = os.path.join(RES_DIR, f"{chip}_{pair}_stabtime_comparison.pdf")
+            res_image = os.path.join(RES_DIR, f"{chip}_{pair}_stabtime_comparison.png")
             fig.savefig(res_image)
             plt.close()
 
@@ -581,14 +592,14 @@ if __name__ == "__main__":
             'P2-P3': {
                 'nums': np.arange(46, 77),
                 'lowtemp_highbias_num': 45,
-                # 'noise_level': 1*ur.pA,
+                'noise_level': 2*ur.pA,
             },
             'P1-P4': {
                 'nums': np.concatenate([
                     np.arange(80, 95),
                     np.arange(96, 110),
                 ]),
-                'noise_level': 1*ur.pA,
+                'noise_level': 2*ur.pA,
             },
             'P2-P9': {
                 'nums': np.arange(114, 146),
@@ -602,7 +613,6 @@ if __name__ == "__main__":
         },
     }
     # data_dict_ = {'SPC2': {'P2-P4': data_dict['SPC2']['P2-P4']}}
-    # data_dict_ = {k: v for k, v in data_dict.items() if k in ['SQC1', 'SLBC2']}
     # data_dict_ = {k: v for k, v in data_dict.items() if k in ['SQC1']}
     data_dict_ = data_dict
     full(dh, data_dict_)

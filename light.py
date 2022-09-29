@@ -101,7 +101,7 @@ def temp_dependence(dh, names):
     ax.set_ylabel(r"$G$" + ulbl(uy))
     ax.set_yscale('log')
     plt.legend(loc=(0.38, 0.55))
-    res_image = os.path.join(res_dir, "all-temperature_dep.pdf")
+    res_image = os.path.join(res_dir, "all-temperature_dep.png")
     fig.savefig(res_image, dpi=100)
     plt.close()
 
@@ -117,7 +117,7 @@ def temp_dependence(dh, names):
     ax.set_ylabel(r"$G$" + ulbl(uy))
     ax.set_yscale('log')
     plt.legend(loc=(0.38, 0.55))
-    res_image = os.path.join(res_dir, "all-temperature_dep_dark.pdf")
+    res_image = os.path.join(res_dir, "all-temperature_dep_dark.png")
     fig.savefig(res_image, dpi=100)
     plt.close()
 
@@ -133,7 +133,7 @@ def temp_dependence(dh, names):
         ax.set_ylabel(r"$G$" + ulbl(uy))
         ax.set_yscale('log')
         plt.legend()
-        res_image = os.path.join(res_dir, f"{key}-temperature_dep.pdf")
+        res_image = os.path.join(res_dir, f"{key}-temperature_dep.png")
         fig.savefig(res_image, dpi=100)
         plt.close()
 
@@ -146,7 +146,7 @@ def temp_dependence(dh, names):
         ax.set_xlabel(r"T" + ulbl(ux))
         ax.set_ylabel(r"$G_{light}/G_{dark}$")
         plt.legend()
-        res_image = os.path.join(res_dir, f"{key}-temperature_dep_rel.pdf")
+        res_image = os.path.join(res_dir, f"{key}-temperature_dep_rel.png")
         fig.savefig(res_image, dpi=100)
         plt.close()
 
@@ -181,7 +181,7 @@ def time_constant(dh, names, switches):
         ax.set_ylabel(r"$\tau$" + ulbl(uy))
         ax.set_yscale('log')
         plt.legend()
-        res_image = os.path.join(res_dir, f"{key}-tau.pdf")
+        res_image = os.path.join(res_dir, f"{key}-tau.png")
         fig.savefig(res_image, dpi=100)
         plt.close()
 
@@ -203,7 +203,7 @@ def color_dependence(dh, names, time_window):
             key.replace('_', ' '), dh.prop['bias'], dh.prop['temperature']
         ))
         plt.legend()
-        res_image = os.path.join(res_dir, f"{key}-color_dep.pdf")
+        res_image = os.path.join(res_dir, f"{key}-color_dep.png")
         fig.savefig(res_image, dpi=100)
         plt.close()
 
@@ -242,7 +242,7 @@ def bias_dependence(dh, names, switches):
         ax.set_xlabel("$V_b$" + ulbl(ux))
         ax.set_ylabel("$G$" + ulbl(uy))
         plt.legend()
-        res_image = os.path.join(res_dir, f"{key}-{fmt(temperature, sep='')}-bias_dep.pdf")
+        res_image = os.path.join(res_dir, f"{key}-{fmt(temperature, sep='')}-bias_dep.png")
         fig.savefig(res_image, dpi=100)
         plt.close()
 
@@ -253,7 +253,7 @@ def bias_dependence(dh, names, switches):
         ax.set_title(f"Relative Bias Dependence ({key.replace('_', ' ')}, {fmt(temperature)})")
         ax.set_xlabel("$V_b$" + ulbl(ux))
         ax.set_ylabel(r"$G_{light}/G_{dark}$")
-        res_image = os.path.join(res_dir, f"{key}-{fmt(temperature, sep='')}-bias_dep_rel.pdf")
+        res_image = os.path.join(res_dir, f"{key}-{fmt(temperature, sep='')}-bias_dep_rel.png")
         fig.savefig(res_image, dpi=100)
         plt.close()
 
@@ -282,7 +282,7 @@ def plot_switches(dh, names, switches):
             plt.legend()
             res_image = os.path.join(
                 res_dir,
-                "{3}-switch{2}_{0.m}{0.u}_{1.m}{1.u}.pdf".format(
+                "{3}-switch{2}_{0.m}{0.u}_{1.m}{1.u}.png".format(
                     dh.prop['bias'],
                     dh.prop['temperature'],
                     f"_{d}" if len(switches[key][i]) == 1 else "",
@@ -306,7 +306,7 @@ def plot_ivs(dh, names):
             ax.set_title(f"IV ({key.replace('_', ' ')}, {dh.prop['temperature']})")
             res_image = os.path.join(
                 res_dir,
-                "{1}-iv_{0.m}{0.u}.pdf".format(
+                "{1}-iv_{0.m}{0.u}.png".format(
                     dh.prop['temperature'],
                     key
                 )
@@ -406,13 +406,13 @@ if __name__ == "__main__":
     dh.load_chip(chip)
 
     do = []
-    # do.append('temp_dependence')
-    # do.append('time_constant')
-    # do.append('color_dependence')
-    # do.append('bias_dependence')
-    # do.append('plot_switches')
-    # do.append('plot_ivs')
-    # do.append('heat_balance')
+    do.append('temp_dependence')
+    do.append('time_constant')
+    do.append('color_dependence')
+    do.append('bias_dependence')
+    do.append('plot_switches')
+    do.append('plot_ivs')
+    do.append('heat_balance')
 
     if 'temp_dependence' in do:
         print('temp_dependence')

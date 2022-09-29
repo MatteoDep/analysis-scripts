@@ -53,7 +53,7 @@ def plot_fit(dh, data_dict):
             ax_in.set_title('fit region')
             ax.indicate_inset_zoom(ax_in)
             ax.legend()
-            res_image = os.path.join(RES_DIR, f"{chip}_{dh.prop['pair']}_{inj}_resistance.pdf")
+            res_image = os.path.join(RES_DIR, f"{chip}_{dh.prop['pair']}_{inj}_resistance.png")
             plt.savefig(res_image)
             plt.close()
 
@@ -95,7 +95,7 @@ def plot_ivs(dh, data_dict):
                     axs[1].set_title('4-probe')
             pairs.append(dh.prop['pair'])
         res_image = os.path.join(
-            RES_DIR, f"{dh.chip}_{'_'.join(pairs)}_iv_2-4p.pdf"
+            RES_DIR, f"{dh.chip}_{'_'.join(pairs)}_iv_2-4p.png"
         )
         fig.savefig(res_image)
         plt.close()
@@ -119,7 +119,7 @@ def plot_iv(dh, data_dict, highbias=False):
                 ax_in.set_ymargin(0)
                 ax.indicate_inset_zoom(ax_in)
             res_image = os.path.join(
-                RES_DIR, f"{dh.chip}_{dh.prop['pair']}_iv_{fmt(dh.prop['temperature'], sep='')}{'_highbias' if highbias else ''}.pdf"
+                RES_DIR, f"{dh.chip}_{dh.prop['pair']}_iv_{fmt(dh.prop['temperature'], sep='')}{'_highbias' if highbias else ''}.png"
             )
             fig.savefig(res_image)
             plt.close()
@@ -141,7 +141,7 @@ def plot_gate_trace(dh, title=None, res_names=None):
                 axs[j] = dh.plot(axs[j], mode=m)
             fig.suptitle(f"Example Gate Trace on chip {chip}")
             fig.tight_layout()
-            res_image = os.path.join(RES_DIR, f"{chip}_{dh.prop['pair']}_gate_trace.pdf")
+            res_image = os.path.join(RES_DIR, f"{chip}_{dh.prop['pair']}_gate_trace.png")
             fig.savefig(res_image)
 
 

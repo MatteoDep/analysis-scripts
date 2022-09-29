@@ -32,12 +32,18 @@ def get_gate_dependence(dh, names, fields, delta_field):
         for j, field in enumerate(fields):
             field_win = [field - delta_field, field + delta_field]
             mask = dh.get_mask(field_win=field_win)
-            cond = np.sum(a.isnan(full_conductance[mask])) < 0.1 * np.sum(mask)
-            cond *= field_win[1] <= dh.prop['bias'] / dh.get_length()
-            if cond:
-                conductance_i = a.average(full_conductance[mask])
+            if field == 0 * ur['V/um']:
+                cond = np.sum(a.isnan(full_conductance[mask])) < 0.9 * np.sum(mask)
+                if cond:
+                    conductance_i = dh.get_conductance(method='fit', mask=mask)
+                else:
+                    conductance_i = np.nan
             else:
-                conductance_i = np.nan
+                cond = (np.sum(a.isnan(full_conductance[mask])) < 0.1 * np.sum(mask)) * (field_win[1] <= dh.prop['bias'] / dh.get_length())
+                if cond:
+                    conductance_i = a.average(full_conductance[mask])
+                else:
+                    conductance_i = np.nan
             conductance[j] = np.append(conductance[j], conductance_i)
     return gate, conductance
 
@@ -119,12 +125,12 @@ def main(data_dict):
                                         ls=ls[d], marker=ms[d], zorder=i, c=cols[i])
                         textcoord_index = np.argmax(np.where(maskout, -np.inf, x_))
                         ytext = y_[textcoord_index]
-                        ax.text(xtext, ytext, fr'${ymax/ymin:.2f}$')
+                        ax.text(xtext, ytext, r'$\mathbf{' + f'{ymax/ymin:.2f}' + r'}$')
                 ax.set_yscale('log')
                 matinv = ax.transLimits
                 mat = matinv.inverted()
                 xtext, ytext = mat.transform(matinv.transform([xtext, np.log10(ytext)]) + np.array([-0.2, 0.1]))
-                ax.text(xtext, 10**ytext, r'$G_{max}/G_{min}:$')
+                ax.text(xtext, 10**ytext, r'$\mathbf{G_{max}/G_{min}:}$')
                 ax.yaxis.set_major_formatter(ticker.ScalarFormatter())
                 if ymaxabs / yminabs < 5:
                     ax.yaxis.set_minor_formatter(ticker.ScalarFormatter())
@@ -138,7 +144,7 @@ def main(data_dict):
                 ax.set_xlabel(r"$V_G$" + ulbl(ux))
                 ax.set_ylabel(r"$G$" + ulbl(uy))
                 cbar.ax.set_ylabel("$E_{{bias}}$" + ulbl(fields_.u))
-                res_image = os.path.join(RES_DIR, f"{chip}_{pair}_{temp_key}_gate_dep.pdf")
+                res_image = os.path.join(RES_DIR, f"{chip}_{pair}_{temp_key}_gate_dep.png")
                 fig.savefig(res_image, bbox_inches='tight')
                 plt.close()
 
