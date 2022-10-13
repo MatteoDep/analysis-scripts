@@ -19,7 +19,10 @@ RES_DIR = os.path.join('results', EXPERIMENT)
 os.makedirs(RES_DIR, exist_ok=True)
 
 
-def get_length_dependence(dh, names, field, delta_field):
+def get_length_dependence(dh, names):
+    delta_field = 0.001*ur['V/um']
+    # delta_bias = 0.005*ur['V']
+
     injs = ['2p', '4p']
     length = {inj: [] * ur.um for inj in injs}
     resistance = {inj: [] * ur.Mohm for inj in injs}
@@ -29,7 +32,8 @@ def get_length_dependence(dh, names, field, delta_field):
         inj = dh.prop['injection'].lower()
         length[inj] = np.append(length[inj], dh.get_length())
         pair[inj] = np.append(pair[inj], dh.prop['pair'])
-        mask = dh.get_mask([-delta_field, delta_field])
+        mask = dh.get_mask(field_win=[-delta_field, delta_field])
+        # mask = dh.get_mask(bias_win=[-delta_bias, delta_bias])
         resistance_i = dh.get_resistance(method='fit', mask=mask)
         resistance[inj] = np.append(resistance[inj], resistance_i)
     return length, resistance, pair
@@ -37,9 +41,6 @@ def get_length_dependence(dh, names, field, delta_field):
 
 def main(dh, data_dict, pair_on_axis=False):
     """Compute resistance over length characterization."""
-    field = 0*ur['V/um']
-    delta_field = 0.001*ur['V/um']
-
     for chip in data_dict:
         dh.load_chip(chip)
         nums = data_dict[chip]['nums']
@@ -47,7 +48,7 @@ def main(dh, data_dict, pair_on_axis=False):
         dh.load(names)
         print("Chip {}.".format(chip))
 
-        length, resistance, pair = get_length_dependence(dh, names, field, delta_field)
+        length, resistance, pair = get_length_dependence(dh, names)
 
         injs = ['2p', '4p']
         if len(length['4p']) > 0:
@@ -64,7 +65,7 @@ def main(dh, data_dict, pair_on_axis=False):
         xlim = [-10, max_length + 10]
         pair_label = {}
         for inj in injs:
-            figsize = (0.15 * np.amax(a.separate_measurement(length[inj])[0]), 9) if pair_on_axis else None
+            figsize = (0.8 * np.amax(a.separate_measurement(length[inj])[0]), 5) if pair_on_axis else None
             fig, ax = plt.subplots(figsize=figsize)
             inj_label = inj.replace('p', '-probe')
             fig.suptitle(f"{inj_label} Resistance")
@@ -90,7 +91,7 @@ def main(dh, data_dict, pair_on_axis=False):
                 res_image = os.path.join(RES_DIR, f"{chip}_{inj}_resistance.png")
             ax.set_xlim(xlim)
             ax = dp.include_origin(ax, 'y')
-            ax.set_ylabel("$R$" + ulbl(uy))
+            ax.set_ylabel("$R_{"+inj.upper()+"}$" + ulbl(uy))
             plt.savefig(res_image)
             plt.close()
 
@@ -107,7 +108,7 @@ def main(dh, data_dict, pair_on_axis=False):
                         common_pair_label = np.append(common_pair_label, f"{p}\n{length['2p'][i]}")
                         contact_resistance = np.append(contact_resistance, (resistance['2p'][i] - resistance['4p'][j]))
                         contact_resistance_rel = np.append(contact_resistance_rel, contact_resistance[-1] / resistance['2p'][i])
-            figsize = (0.15 * np.amax(a.separate_measurement(common_length)[0]), 9) if pair_on_axis else None
+            figsize = (0.8 * np.amax(a.separate_measurement(common_length)[0]), 5) if pair_on_axis else None
             fig, ax = plt.subplots(figsize=figsize)
             fig.suptitle("Contact Resistance")
             x = common_length

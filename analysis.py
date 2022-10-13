@@ -17,7 +17,7 @@ import pint
 import warnings
 
 
-plt.style.use('latex')
+plt.style.use('./report.mplstyle')
 
 ur = pint.UnitRegistry()
 ur.setup_matplotlib(False)
@@ -233,7 +233,7 @@ class DataHandler:
         return self.cp.get_distance(self.prop['pair'])
 
     def plot(self, ax, mode='i/v', mask=None, notraw=False, label=None,
-             color=None, set_xy_label=True, to_compact=['current']):
+             color=None, markersize=10, set_xy_label=True, to_compact=['current']):
         key_short_list = ['t', 'v', 'vg', 'i']
         key_list = ['time', 'bias', 'gate', 'current']
         sym_list = ['t', 'V', 'V_G', 'I']
@@ -261,7 +261,7 @@ class DataHandler:
             if mask is not None:
                 y = y[mask]
             # correct data
-            ax.plot(x.m, y.m, 'o', label=label, c=color)
+            ax.plot(x.m, y.m, 'o', label=label, c=color, markersize=markersize)
             if set_xy_label:
                 ysym = sym_list[key_list.index(ykey)]
                 ax.set_ylabel(f"${ysym}$" + ulbl(y.u))
@@ -434,7 +434,8 @@ def fmt(x, latex=False, sep=' '):
     def fmt_u(u):
         if u == ur['']:
             return ''
-        return ('{0:' + uargs + '}').format(u).replace('_', '')
+        res = ('{0:' + uargs + '}').format(u).replace('_', '')
+        return res
 
     if hasattr(x, 'units'):
         string = sep.join([fmt_m(x.m), fmt_u(x.u)])
@@ -447,7 +448,7 @@ def fmt(x, latex=False, sep=' '):
 
 def ulbl(u):
     """make label for units."""
-    return r' [$' + fmt(u, latex=True) + '$]'
+    return r' [' + fmt(u, latex=True) + ']'
 
 
 # ANALYSIS

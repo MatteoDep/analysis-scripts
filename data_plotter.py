@@ -75,7 +75,7 @@ def plot_ivs(dh, data_dict):
             names_dict[key].append(name)
         idx = np.argsort(lengths)
         n_sf = len(names_dict)
-        fig = plt.figure(constrained_layout=True, figsize=(18, n_sf*9))
+        fig = plt.figure(constrained_layout=True, figsize=(7, n_sf*5))
         fig.suptitle(f'Example I-Vs from chip {chip}')
         subfigs = fig.subfigures(nrows=n_sf, ncols=1)
         if n_sf == 1:
@@ -108,21 +108,44 @@ def plot_iv(dh, data_dict, highbias=False):
         names = np.array([f"{chip}_{i}" for i in nums])
         for name in names:
             dh.load(name)
-            fig, ax = plt.subplots(figsize=(12, 9))
+            fig, ax = plt.subplots()
             fig.suptitle(f"Example I-V at {dh.prop['temperature']}")
-            dh.plot(ax,)
+            inj = dh.prop['injection'].lower()
+            mode = 'i/v' if inj == '2p' else 'v/i'
+            dh.plot(ax, mode=mode)
             if not highbias and dh.prop['temperature'] < 55*ur.K:
-                mask = dh.get_mask([-0.05, 0.05] * ur['V/um'])
+                mask = dh.get_mask(current_win=[-1.1, 1.1]*ur.pA, only_return=False, correct_offset=False)
                 ax_in = ax.inset_axes([0.65, 0.08, 0.3, 0.3])
-                dh.plot(ax_in, mask=mask, set_xy_label=False)
+                dh.plot(ax_in, mask=mask, markersize=2, set_xy_label=False)
                 ax_in.set_xmargin(0)
                 ax_in.set_ymargin(0)
                 ax.indicate_inset_zoom(ax_in)
             res_image = os.path.join(
-                RES_DIR, f"{dh.chip}_{dh.prop['pair']}_iv_{fmt(dh.prop['temperature'], sep='')}{'_highbias' if highbias else ''}.png"
+                RES_DIR, f"{dh.chip}_{dh.prop['pair']}_{inj}iv_{fmt(dh.prop['temperature'], sep='')}{'_highbias' if highbias else ''}.png"
             )
             fig.savefig(res_image)
             plt.close()
+
+
+def plot_ivs_gate(dh, data_dict, highbias=False):
+    for chip in data_dict:
+        dh.load_chip(chip)
+        nums = data_dict[chip]['nums']
+        names = np.array([f"{chip}_{i}" for i in nums])
+        gates = []*ur.V
+        for name in names:
+            dh.load(name)
+            gates = np.append(gates, dh.get_gate(method='average'))
+        fig, ax = plt.subplots()
+        fig.suptitle(f"Example I-V at {dh.prop['temperature']}")
+        cbar, cols = get_cbar_and_cols(fig, gates)
+        for i, name in enumerate(names):
+            dh.plot(ax, color=cols[i])
+        res_image = os.path.join(
+            RES_DIR, f"{dh.chip}_{dh.prop['pair']}_ivs_gate_{fmt(dh.prop['temperature'], sep='')}.png"
+        )
+        fig.savefig(res_image)
+        plt.close()
 
 
 def plot_gate_trace(dh, title=None, res_names=None):
@@ -133,14 +156,10 @@ def plot_gate_trace(dh, title=None, res_names=None):
         names = np.array([f"{chip}_{i}" for i in nums])
         for name in names:
             dh.load(name)
-            n_sp = len(modes)
-            fig, axs = plt.subplots(n_sp, 1, figsize=(9, 10))
-            if n_sp == 1:
-                axs = [axs]
+            fig, axs = plt.subplots(2, 1, figsize=(7, 7))
             for j, m in enumerate(modes):
                 axs[j] = dh.plot(axs[j], mode=m)
             fig.suptitle(f"Example Gate Trace on chip {chip}")
-            fig.tight_layout()
             res_image = os.path.join(RES_DIR, f"{chip}_{dh.prop['pair']}_gate_trace.png")
             fig.savefig(res_image)
 
@@ -187,7 +206,7 @@ if __name__ == "__main__":
             'nums': [492],
         },
     }
-    plot_gate_trace(dh, data_dict)
+    # plot_gate_trace(dh, data_dict)
 
     data_dict = {
         'SPC2': {
@@ -200,14 +219,15 @@ if __name__ == "__main__":
             'nums': [9, 10, 14, 23, 24, 28],
         },
     }
-    plot_ivs(dh, data_dict)
+    # plot_iv(dh, data_dict)
 
     data_dict = {
         'SPC2': {
             'nums': [282],
         },
     }
-    plot_iv(dh, data_dict, highbias=True)
+    # plot_iv(dh, data_dict, highbias=True)
+
     data_dict = {
         'SPC2': {
             'nums': [283, 297, 305, 332],
@@ -220,4 +240,11 @@ if __name__ == "__main__":
             'nums': [11, 26],
         },
     }
-    plot_fit(dh, data_dict)
+    # plot_fit(dh, data_dict)
+
+    data_dict = {
+        'SPC2': {
+            'nums': np.arange(719, 803),
+        },
+    }
+    # plot_ivs_gate(dh, data_dict)

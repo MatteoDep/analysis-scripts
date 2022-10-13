@@ -99,12 +99,12 @@ def main(data_dict):
                 ms = {'up': 'o', 'down': 'd'}
                 x = gate
                 x_, dx, ux = a.separate_measurement(x)
-                fig, ax = plt.subplots(figsize=(12, 9))
+                fig, ax = plt.subplots(figsize=(7, 5))
                 fig.suptitle("Gate Effect on Conductance")
                 cbar, cols = dp.get_cbar_and_cols(fig, fields_, vmin=0)
                 yminabs = None
                 ymaxabs = None
-                xspace = 0.05 * (np.amax(x_) - np.amin(x_))
+                xspace = 0.1 * (np.amax(x_) - np.amin(x_))
                 textcoord_index = np.argmax(x_)
                 xtext = x_[textcoord_index] + xspace
                 for i, field in enumerate(fields_):
@@ -129,12 +129,12 @@ def main(data_dict):
                 ax.set_yscale('log')
                 matinv = ax.transLimits
                 mat = matinv.inverted()
-                xtext, ytext = mat.transform(matinv.transform([xtext, np.log10(ytext)]) + np.array([-0.2, 0.1]))
+                xtext, ytext = mat.transform(matinv.transform([xtext, np.log10(ytext)]) + np.array([-0.3, 0.1]))
                 ax.text(xtext, 10**ytext, r'$\mathbf{G_{max}/G_{min}:}$')
                 ax.yaxis.set_major_formatter(ticker.ScalarFormatter())
                 if ymaxabs / yminabs < 5:
                     ax.yaxis.set_minor_formatter(ticker.ScalarFormatter())
-                (xmin, ymin), (xmax, ymax) = mat.transform([[0, 0], [1.12, 1.2]])
+                (xmin, ymin), (xmax, ymax) = mat.transform([[0, 0], [1.25, 1+0.15*min(len(directions), 2)]])
                 ax.set_xlim([xmin, xmax])
                 ax.set_ylim([10**ymin, 10**ymax])
                 ax.legend(handles=[

@@ -16,8 +16,3 @@ for subdir in $subdirs; do
 		fi
 	done
 done
-# cp -r ./results/data ../report/images/
-# cp -r ./results/light ../report/images/
-# cp -r ./results/length ../report/images/
-# cp -r ./results/temperature ../report/images/
-# cp -r ./results/gate ../report/images/

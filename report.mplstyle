@@ -1,0 +1,31 @@
+# See https://matplotlib.org/stable/tutorials/introductory/customizing.html
+
+font.family: serif
+font.size: 20
+font.serif: Computer Modern Roman
+font.sans-serif: Computer Modern Sans Serif
+font.cursive: Apple Chancery
+font.fantasy: Chicago
+font.monospace: Computer Modern Typewriter
+
+text.usetex: True
+text.latex.preamble: \usepackage{siunitx}
+mathtext.fontset: cm
+
+axes.formatter.use_mathtext: True
+axes.grid: True
+axes.grid.which: both
+
+grid.linestyle: --
+grid.linewidth: 0.6
+grid.alpha: 0.8
+
+legend.frameon: False
+
+figure.figsize: 6.5, 5
+figure.dpi: 100
+figure.constrained_layout.use: True
+
+errorbar.capsize: 2
+
+savefig.dpi: 200
