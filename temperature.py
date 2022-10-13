@@ -128,7 +128,7 @@ def full(dh, data_dict):
                 act_energy_, dact_energy, _ = a.separate_measurement(act_energy)
                 print("Activation energy:", fmt(act_energy))
                 x_model = 100 / np.array([80, 350])
-                ax.plot(x_model, act_model(x_model), c='r', zorder=1, label=fr'fit ($U_A = {fmt(act_energy, latex=True)}$)')
+                ax.plot(x_model, act_model(x_model), c='r', zorder=1, label='fit')
                 ax.legend()
                 ax.set_xlabel(r"$100/T$" + ulbl(ux))
                 ax.set_ylabel(r"$G$" + ulbl(uy))
@@ -149,8 +149,8 @@ def full(dh, data_dict):
                 y_, dy, uy = a.separate_measurement(y)
                 x_, y_, dx, dy = a.strip_nan(x_, y_, dx, dy)
                 ax.errorbar(x_, y_, xerr=dx, yerr=dy, fmt='--o', zorder=i, c=cols[i])
-                if i == 0 and act_energy is not None:
-                    ax.plot(x_model, act_model(x_model), c='r', zorder=len(fields_), label=fr"fit ($U_A = {fmt(act_energy, latex=True)}$)")
+                # if i == 0 and act_energy is not None:
+                #     ax.plot(x_model, act_model(x_model), c='r', zorder=len(fields_), label="fit")
             ax.legend()
             ax.set_xlabel(r"$100/T$" + ulbl(ux))
             ax.set_ylabel(r"$G$" + ulbl(uy))
@@ -163,7 +163,7 @@ def full(dh, data_dict):
             #############
             # Power law #
             #############
-            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(18, 9))
+            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 5))
             fig.suptitle('Power Law')
 
             # power law temperature dependence at low bias
@@ -179,7 +179,7 @@ def full(dh, data_dict):
                 alpha0_, dalpha0, _ = a.separate_measurement(alpha0)
                 print("alpha0:", fmt(alpha0))
                 ax1.errorbar(x_, y_, xerr=dx, yerr=dy, fmt='o', zorder=1, label='data')
-                ax1.plot(x_, model(x_), zorder=2, label=fr'fit ($\alpha_0 = {fmt(alpha0, latex=True)}$)')
+                ax1.plot(x_, model(x_), zorder=2, label='fit')
             ax1.set_xscale('log')
             ax1.set_yscale('log')
             ax1.xaxis.set_minor_formatter(ticker.ScalarFormatter())
@@ -202,7 +202,7 @@ def full(dh, data_dict):
             alpha1_, dalpha1, _ = a.separate_measurement(alpha1)
             print("alpha1:", fmt(alpha1))
             ax2.errorbar(x_, y_, xerr=None, yerr=dy, fmt='o', zorder=1, label='data')
-            ax2.plot(x_, model(x_), zorder=2, label=fr'fit ($\alpha_1 = {fmt(alpha1, latex=True)}$)')
+            ax2.plot(x_, model(x_), zorder=2, label='fit')
             ax2.set_xscale('log')
             ax2.set_yscale('log')
             ax2.xaxis.set_minor_formatter(ticker.ScalarFormatter())
@@ -210,7 +210,6 @@ def full(dh, data_dict):
             ax2.set_xlabel(r"$E_b$" + ulbl(ux))
             ax2.set_ylabel(r"$G$" + ulbl(uy))
             ax2.legend()
-            fig.tight_layout()
             res_image = os.path.join(RES_DIR, f"{chip}_{pair}_power_law.png")
             fig.savefig(res_image)
             plt.close()
@@ -290,13 +289,13 @@ def full(dh, data_dict):
             # using alpha0
             fig.suptitle(r'Universal Scaling Curve - Using $\alpha_0$')
             y_ = update(alpha0_)
-            txt = ax.text(0.17, 0.8, fr'$\alpha_0 = {fmt(alpha0, latex=True)}$', transform=ax.transAxes)
+            # txt = ax.text(0.17, 0.8, fr'$\alpha_0 = {fmt(alpha0, latex=True)}$', transform=ax.transAxes)
             (ns0, i0), model = fit_scaling_curve(alpha0_, y_, 1e-16)
             ns0_, dns0, _ = a.separate_measurement(ns0)
             i0_, di0, _ = a.separate_measurement(i0)
             print(f'ns0: {fmt(ns0)}\ni0: {fmt(i0)}')
             x_model = np.linspace(np.amin(x_), np.amax(x_), int(1e3))
-            label = fr'fit ($N_{{sites,0}} = {fmt(ns0, latex=True)}$)'
+            label = 'fit'
             fit_line, = ax.plot(x_model, model(x_model), c='r', label=label)
             ax.legend()
             res_image = os.path.join(RES_DIR, f"{chip}_{pair}_universal_scaling.png")
@@ -305,12 +304,12 @@ def full(dh, data_dict):
             # using alpha2
             fig.suptitle(r'Universal Scaling Curve - Using manual $\alpha$')
             y2_ = update(alpha2)
-            txt.set_text(fr'$\alpha_2 = {fmt(alpha2, latex=True)}$')
+            # txt.set_text(fr'$\alpha_2 = {fmt(alpha2, latex=True)}$')
             (ns2, i02), model = fit_scaling_curve(alpha2, y2_, 1e-18)
             ns2_, dns2, _ = a.separate_measurement(ns2)
             i02_, di02, _ = a.separate_measurement(i02)
             fit_line.set_ydata(model(x_model))
-            fit_line.set_label(fr'fit ($N_{{sites,2}} = {fmt(ns2, latex=True)}$)')
+            fit_line.set_label('fit')
             print(f'ns2: {fmt(ns2)}\ni02: {fmt(i02)}')
             ax.legend()
             res_image = os.path.join(RES_DIR, f"{chip}_{pair}_universal_scaling_adjusted.png")
@@ -384,7 +383,7 @@ def nsites(data_dict):
     df = df.set_index(['chip', 'length']).sort_index().reset_index()
     df_latex = df.loc[:, ['chip', 'pair']]
     keys = ['length', 'act_energy', 'alpha0', 'alpha1', 'alpha2', 'ns0', 'ns2']
-    titles = ['Length' + ulbl(ur.um), r'$U_A$' + ulbl(ur.meV), r'$\alpha_0$', r'$\alpha_1$', r'$\alpha_2$', r'$N_{sites,0}$', r'$N_{sites,2}$']
+    titles = ['Length' + ulbl(ur.um), r'$E_A$' + ulbl(ur.meV), r'$\alpha_0$', r'$\alpha_1$', r'$\alpha_2$', r'$N_{sites,0}$', r'$N_{sites,2}$']
     for key, title in zip(keys, titles):
         x_ = np.array(df[key])
         if key == 'alpha2':
@@ -445,7 +444,7 @@ def high_temperature(dh, data_dict):
         ax.errorbar(x_, y_, xerr=dx, yerr=dy, fmt=markers[i], zorder=i, c=cols[i])
         ax.plot(x_model, models[i](x_model), c=cols[i], zorder=len(act_energy)+i)
         if i == 0:
-            cbar.ax.set_ylabel(r"$U_A$" + ulbl(ur.meV))
+            cbar.ax.set_ylabel(r"$E_A$" + ulbl(ur.meV))
             ax.set_xlabel(r"$100/T$" + ulbl(ux))
             ax.set_ylabel(r"$G$" + ulbl(uy))
     ax.legend(handles=[
@@ -490,7 +489,7 @@ def compare_stabtime(dh, data_dict):
                 print(f"Activation energy ({fmt(stabtime_i)}): {fmt(act_energy)}")
                 x_model = 100 / np.array([100, 350])
                 ax.plot(x_model, model(x_model), c=fit_cols[i], zorder=len(stabtime)+i,
-                        label=fr"fit after ${fmt(stabtime_i, latex=True)}$ ($U_A={fmt(act_energy, latex=True)}$)")
+                        label=fr"fit after ${fmt(stabtime_i, latex=True)}$")
             ax.legend()
             ax.set_xlabel(r"$100/T$" + ulbl(ux))
             ax.set_ylabel(r"$G$" + ulbl(uy))
