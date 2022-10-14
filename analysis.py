@@ -448,6 +448,8 @@ def fmt(x, latex=False, sep=' '):
 
 def ulbl(u):
     """make label for units."""
+    if u is None or u.is_compatible_with(ur['']):
+        return ''
     return r' [' + fmt(u, latex=True) + ']'
 
 

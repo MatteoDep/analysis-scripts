@@ -380,22 +380,31 @@ def nsites(data_dict):
         fig.savefig(res_images[i])
         plt.close()
 
-    df = df.set_index(['chip', 'length']).sort_index().reset_index()
+    stats = {}
+    df_indexed = df.set_index(['chip', 'length']).sort_index()
+    df = df_indexed.reset_index()
     df_latex = df.loc[:, ['chip', 'pair']]
     keys = ['length', 'act_energy', 'alpha0', 'alpha1', 'alpha2', 'ns0', 'ns2']
-    titles = ['Length' + ulbl(ur.um), r'$E_A$' + ulbl(ur.meV), r'$\alpha_0$', r'$\alpha_1$', r'$\alpha_2$', r'$N_{sites,0}$', r'$N_{sites,2}$']
-    for key, title in zip(keys, titles):
+    units = [ur.um, ur.meV, ur[''], ur[''], ur[''], ur[''], ur[''], ur['']]
+    titles = ['Length', r'$E_A$', r'$\alpha_0$', r'$\alpha_1$', r'$\alpha_2$', r'$N_{sites,0}$', r'$N_{sites,2}$']
+    for key, title, unit in zip(keys, titles, units):
         x_ = np.array(df[key])
         if key == 'alpha2':
-            x = ['$' + fmt((l_), latex=True) + '$' for l_ in x_]
+            x = x_
+            x_str = ['$' + fmt((x_i), latex=True) + '$' for x_i in x_]
         else:
             dx = np.array(df['d_' + key])
-            x = ['$' + fmt((l_ * ur['']).plus_minus(dl).m, latex=True) + '$' for l_, dl in zip(x_, dx)]
-        df_latex[title] = x
-    tex_path = os.path.join(RES_DIR, 'params.tex')
+            x = a.qlist_to_qarray([(x_i * unit).plus_minus(dxi) for x_i, dxi in zip(x_, dx)])
+            x_str = ['$' + fmt(xi.m, latex=True) + '$' for xi in x]
+        if key not in ['length', 'ns0', 'ns2']:
+            stats[title] = [fmt(a.average(x), latex=True)]
+        df_latex[title+ulbl(unit)] = x_str
+
+    # write table
+    df_tex_path = os.path.join(RES_DIR, 'params.tex')
     latex_str = df_latex.set_index(['chip', 'pair']).style.to_latex()
     latex_list = latex_str.split('\n')
-    with open(tex_path, 'w') as f:
+    with open(df_tex_path, 'w') as f:
         for i, line in enumerate(latex_list):
             if i == 0:
                 line = line.replace('tabular}{ll', 'tabular}{ll|')
@@ -403,6 +412,21 @@ def nsites(data_dict):
                 print(line, end='', file=f)
                 break
             elif i > 2 and not line.startswith(' '):
+                print(r'\hline', file=f)
+            print(line, file=f)
+
+    # write stats table
+    stats_tex_path = os.path.join(RES_DIR, 'stats.tex')
+    latex_str = pd.DataFrame(stats).style.to_latex()
+    latex_list = latex_str.split('\n')
+    with open(stats_tex_path, 'w') as f:
+        for i, line in enumerate(latex_list):
+            if i > 0:
+                line = "&".join(line.split('&')[1:])
+            elif line.startswith('\\end'):
+                print(line, end='', file=f)
+                break
+            if i == 2:
                 print(r'\hline', file=f)
             print(line, file=f)
 
@@ -614,9 +638,9 @@ if __name__ == "__main__":
     # data_dict_ = {'SPC2': {'P2-P4': data_dict['SPC2']['P2-P4']}}
     # data_dict_ = {k: v for k, v in data_dict.items() if k in ['SQC1']}
     data_dict_ = data_dict
-    full(dh, data_dict_)
+    # full(dh, data_dict_)
     nsites(data_dict)
-    high_temperature(dh, data_dict)
+    # high_temperature(dh, data_dict)
 
     data_dict = {
         'SPC2': {
@@ -628,4 +652,4 @@ if __name__ == "__main__":
             }
         }
     }
-    compare_stabtime(dh, data_dict)
+    # compare_stabtime(dh, data_dict)
