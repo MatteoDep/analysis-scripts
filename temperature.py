@@ -53,7 +53,7 @@ def get_temperature_dependence(dh, names, fields, delta_field, noise_level=DEFAU
     return temperature, conductance
 
 
-def low_temperature(dh, data_dict):
+def low_temperature(dh, data_dict, min_field_points=4):
     """Main routine function.
     :param dh: DataHandler object.
     :param data_dict: dictionary like
@@ -100,7 +100,7 @@ def low_temperature(dh, data_dict):
             else:
                 lowtemp_highbias_name = names[0]
             max_field = dh.prop['bias'] / dh.get_length()
-            fact = max(a.separate_measurement((fields[4] + delta_field) // max_field)[0] + 1, 1)
+            fact = max(a.separate_measurement((fields[min_field_points] + delta_field) // max_field)[0] + 1, 1)
             fields_ = fields / fact
             delta_field_ = delta_field / fact
             fields_ = fields_[fields_ + delta_field_ < max_field]
@@ -352,52 +352,8 @@ def nsites(data_dict):
         fig.savefig(res_images[i])
         plt.close()
 
-    keys = ['length', 'alpha0', 'alpha1', 'alpha2', 'ns0', 'ns2']
-    units = [ur.um, ur[''], ur[''], ur[''], ur[''], ur[''], ur['']]
-    titles = ['Length', r'$\alpha_0$', r'$\alpha_1$', r'$\alpha_2$', r'$N_{sites,0}$', r'$N_{sites,2}$']
-    table = create_table(df, keys, units, titles)
-    table = table.replace('tabular}{ll', 'tabular}{ll|')
-    df_tex_path = os.path.join(RES_DIR, 'ltparams.tex')
-    with open(df_tex_path, 'w') as f:
-        print(table, file=f)
 
-
-def create_table(df, keys, units, titles):
-    averages_str = r"\multicolumn{2}{c|}{\textbf{average}}"
-    df_indexed = df.set_index(['chip', 'length']).sort_index()
-    df = df_indexed.reset_index()
-    df_latex = df.loc[:, ['chip', 'pair']]
-    for key, title, unit in zip(keys, titles, units):
-        x_ = np.array(df[key])
-        if key == 'alpha2':
-            x = x_
-            x_str = ['$' + fmt((x_i), latex=True) + '$' for x_i in x_]
-        else:
-            dx = np.array(df['d_' + key])
-            x = a.qlist_to_qarray([(x_i * unit).plus_minus(dxi) for x_i, dxi in zip(x_, dx)])
-            x_str = ['$' + fmt(xi.m, latex=True) + '$' for xi in x]
-        averages_str += ' & '
-        if key not in ['length', 'ns0', 'ns2']:
-            averages_str += fmt(a.strip_err(a.average(x)), latex=True)
-        df_latex[title+ulbl(unit)] = x_str
-
-    # write table
-    latex_str = df_latex.set_index(['chip', 'pair']).style.to_latex()
-    end_str = r'\end{tabular}'
-    table = ""
-    for i, line in enumerate(latex_str.split('\n')):
-        if i > 2 and not line.startswith(' '):
-            table += '\n' + r'\hline'
-        if line.startswith(end_str):
-            break
-        if line != "":
-            table += '\n' + line
-    table += '\n' + averages_str
-    table += '\n' + end_str
-    return table
-
-
-def high_temperature(dh, data_dict):
+def high_temperature(dh, data_dict, min_field_points=4):
     print("High Temperature Analysis")
     fields = np.arange(0, 2, 0.05) * ur['V/um']
     delta_field = 0.005 * ur['V/um']
@@ -433,7 +389,7 @@ def high_temperature(dh, data_dict):
             print(f"Chip {chip}, Pair {pair} of length {fmt(length)}.")
 
             max_field = dh.prop['bias'] / dh.get_length()
-            fact = max(a.separate_measurement((fields[4] + delta_field) // max_field)[0] + 1, 1)
+            fact = max(a.separate_measurement((fields[min_field_points] + delta_field) // max_field)[0] + 1, 1)
             fields_ = fields / fact
             delta_field_ = delta_field / fact
             fields_ = fields_[fields_ + delta_field_ < max_field]
@@ -512,17 +468,8 @@ def high_temperature(dh, data_dict):
     fig.savefig(res_image)
     plt.close()
 
-    keys = ['length', 'act_energy']
-    units = [ur.um, ur.meV]
-    titles = ['Length', r'$E_A$']
-    table = create_table(df, keys, units, titles)
-    table = table.replace('tabular}{ll', 'tabular}{ll|')
-    df_tex_path = os.path.join(RES_DIR, 'htparams.tex')
-    with open(df_tex_path, 'w') as f:
-        print(table, file=f)
 
-
-def interface(dh, data_dict, fit_indices=[0]):
+def interface(dh, data_dict, min_field_points=5, fit_indices=[0]):
     print("Interface Analysis")
     fields = np.arange(0, 2, 0.05) * ur['V/um']
     delta_field = 0.005 * ur['V/um']
@@ -530,7 +477,8 @@ def interface(dh, data_dict, fit_indices=[0]):
     fit_indices = [0, 1]
 
     csv_path = os.path.join('results', EXPERIMENT, 'htparams_alt.csv')
-    df_keys = ['chip', 'pair', 'length', 'd_length', 'act_energy0', 'd_act_energy0', 'act_energy1', 'd_act_energy1']
+    df_keys = ['chip', 'pair', 'length', 'd_length', 'act_energy0', 'd_act_energy0', 'act_energy1', 'd_act_energy1',
+               'act_energy_diff', 'd_act_energy_diff']
     if os.path.exists(csv_path):
         df = pd.read_csv(csv_path)
         for k in df_keys:
@@ -552,7 +500,7 @@ def interface(dh, data_dict, fit_indices=[0]):
             print(f"Chip {chip}, Pair {pair} of length {fmt(length)}.")
 
             max_field = dh.prop['bias'] / dh.get_length()
-            fact = max(a.separate_measurement((fields[4] + delta_field) // max_field)[0] + 1, 1)
+            fact = max(a.separate_measurement((fields[min_field_points] + delta_field) // max_field)[0] + 1, 1)
             fields_ = fields / fact
             delta_field_ = delta_field / fact
             fields_ = fields_[fields_ + delta_field_ < max_field]
@@ -560,7 +508,7 @@ def interface(dh, data_dict, fit_indices=[0]):
             df_index = np.nonzero(np.array((df['chip'] == chip) * (df['pair'] == pair)))[0]
 
             temperature, conductance = get_temperature_dependence(dh, names, fields, delta_field)
-            act_energy = []
+            act_energy = []*ur.meV
             act_energy_, dact_energy = [[None, None] for i in fit_indices]
             fig, ax = plt.subplots()
             fig.suptitle("High Temperature Conductance")
@@ -574,9 +522,13 @@ def interface(dh, data_dict, fit_indices=[0]):
                 ax.errorbar(x_, y_, xerr=dx, yerr=dy, fmt='--o', zorder=i, c=cols[i])
                 if i in fit_indices and act_energy_ is not None:
                     coeffs, model = a.fit_exponential(x, y)
-                    act_energy.append((- coeffs[0] * 100 * ur.k_B).to('meV'))
-                    print("Activation energy:", fmt(act_energy[i]))
-                    ax.plot(x_model, model(x_model), c=['r', 'k'][i], zorder=len(fields_)+i, label="$E_A="+fmt(act_energy[i], latex=True)+"$")
+                    if coeffs is None:
+                        act_energy = np.append(act_energy, np.nan)
+                    else:
+                        act_energy = np.append(act_energy, (- coeffs[0] * 100 * ur.k_B).to('meV'))
+                        print("Activation energy:", fmt(act_energy[i]))
+                        ax.plot(x_model, model(x_model), c=['r', 'k'][i], zorder=len(fields_)+i,
+                                label=r"fit at $\mathcal{E}_{bias}="+fmt(field, latex=True)+"$")
             ax.set_xlabel(r"$100/T$" + ulbl(ux))
             ax.set_ylabel(r"$G$" + ulbl(uy))
             cbar.ax.set_ylabel(r"$\mathcal{E}_{bias}$" + ulbl(fields_.u))
@@ -597,7 +549,13 @@ def interface(dh, data_dict, fit_indices=[0]):
                 dfdict.update({
                     f'act_energy{i}': [act_energy_],
                     f'd_act_energy{i}': [dact_energy],
-                 })
+                })
+            act_energy_diff_, dact_energy_diff, _ = a.separate_measurement(np.diff(act_energy)[0])
+            print(act_energy_diff_, dact_energy_diff)
+            dfdict.update({
+                'act_energy_diff': [act_energy_diff_],
+                'd_act_energy_diff': [dact_energy_diff],
+            })
             df0 = pd.DataFrame(dfdict)
             if df.loc[df_index].empty:
                 df = df0.merge(df, how='outer')
@@ -606,15 +564,6 @@ def interface(dh, data_dict, fit_indices=[0]):
             dh.clear()
             print()
     df.to_csv(csv_path, index=False)
-
-    keys = ['length', 'act_energy0', 'act_energy1']
-    units = [ur.um, ur.meV, ur.meV]
-    titles = ['Length', r'$E_A$ ('+fmt(fields_[0], latex=True)+')', r'$E_A$ ('+fmt(fields_[1], latex=True)+')']
-    table = create_table(df, keys, units, titles)
-    table = table.replace('tabular}{ll', 'tabular}{ll|')
-    df_tex_path = os.path.join(RES_DIR, 'htparams_alt.tex')
-    with open(df_tex_path, 'w') as f:
-        print(table, file=f)
 
 
 def compare_stabtime(dh, data_dict):
@@ -661,6 +610,80 @@ def compare_stabtime(dh, data_dict):
             fig.savefig(res_image)
             plt.close()
     outfile.close()
+
+
+def generate_tables():
+    print("Generating tables")
+
+    def create_table(df, keys, units, titles):
+        averages_str = r"\multicolumn{2}{c|}{\textbf{average}}"
+        df_indexed = df.set_index(['chip', 'length']).sort_index()
+        df = df_indexed.reset_index()
+        df_latex = df.loc[:, ['chip', 'pair']]
+        for key, title, unit in zip(keys, titles, units):
+            x_ = np.array(df[key])
+            if key == 'alpha2':
+                x = x_
+                x_str = ['$' + fmt((x_i), latex=True) + '$' for x_i in x_]
+            else:
+                dx = np.array(df['d_' + key])
+                x = a.qlist_to_qarray([(x_i * unit).plus_minus(dxi) for x_i, dxi in zip(x_, dx)])
+                x_str = ['$' + fmt(xi.m, latex=True) + '$' for xi in x]
+            averages_str += ' & '
+            if key not in ['length', 'ns0', 'ns2']:
+                averages_str += fmt(a.average(x).m, latex=True)
+            df_latex[title+ulbl(unit)] = x_str
+
+        # write table
+        latex_str = df_latex.set_index(['chip', 'pair']).style.to_latex()
+        end_str = r'\end{tabular}'
+        table = ""
+        for i, line in enumerate(latex_str.split('\n')):
+            if i != 0:
+                table += '\n'
+            if i > 2 and not line.startswith(' '):
+                table += '\n' + r'\hline'
+            if line.startswith(end_str):
+                break
+            table += line
+        table += '\n' + averages_str
+        table += '\n' + end_str
+        table = table.replace('tabular}{ll', 'tabular}{ll|')
+        return table
+
+    # high temperature
+    csv_path = os.path.join('results', EXPERIMENT, 'htparams.csv')
+    if os.path.exists(csv_path):
+        df = pd.read_csv(csv_path)
+        keys = ['length', 'act_energy']
+        units = [ur.um, ur.meV]
+        titles = ['Length', r'$E_A$']
+        table = create_table(df, keys, units, titles)
+        df_tex_path = os.path.join(RES_DIR, 'htparams.tex')
+        with open(df_tex_path, 'w') as f:
+            print(table, file=f)
+
+    csv_path = os.path.join('results', EXPERIMENT, 'ltparams.csv')
+    if os.path.exists(csv_path):
+        df = pd.read_csv(csv_path)
+        keys = ['length', 'alpha0', 'alpha1', 'alpha2', 'ns0', 'ns2']
+        units = [ur.um, ur[''], ur[''], ur[''], ur[''], ur[''], ur['']]
+        titles = ['Length', r'$\alpha_0$', r'$\alpha_1$', r'$\alpha_2$', r'$N_{sites,0}$', r'$N_{sites,2}$']
+        table = create_table(df, keys, units, titles)
+        df_tex_path = os.path.join(RES_DIR, 'ltparams.tex')
+        with open(df_tex_path, 'w') as f:
+            print(table, file=f)
+
+    csv_path = os.path.join('results', EXPERIMENT, 'htparams_alt.csv')
+    if os.path.exists(csv_path):
+        df = pd.read_csv(csv_path)
+        keys = ['length', 'act_energy0', 'act_energy1', 'act_energy_diff']
+        units = [ur.um, ur.meV, ur.meV, ur.meV]
+        titles = ['Length', r'$E_A('+fmt(0*ur['V/um'], latex=True)+')$', r'$E_A('+fmt(0.05*ur['V/um'], latex=True)+'$)', r'$\Delta E_A$']
+        table = create_table(df, keys, units, titles)
+        df_tex_path = os.path.join(RES_DIR, 'htparams_alt.tex')
+        with open(df_tex_path, 'w') as f:
+            print(table, file=f)
 
 
 class SliderSetter:
@@ -776,13 +799,17 @@ if __name__ == "__main__":
         },
     }
     # data_dict_ = data_dict
-    data_dict_ = {}
+    # data_dict_ = {k: v for k, v in data_dict.items() if k in ['SQC1']}
+    # data_dict_ = {k: v for k, v in data_dict.items() if k in ['SLBC2']}
+    # data_dict_ = {}
+    # high_temperature(dh, data_dict_)
     # low_temperature(dh, data_dict_)
     # nsites(data_dict)
-    # high_temperature(dh, data_dict)
 
-    data_dict_ = {k: v for k, v in data_dict.items() if k in ['SQC1']}
+    data_dict_ = {k: v for k, v in data_dict.items() if k in ['SPC2', 'SQC1']}
     # interface(dh, data_dict_)
+
+    generate_tables()
 
     data_dict = {
         'SPC2': {
@@ -794,4 +821,4 @@ if __name__ == "__main__":
             }
         }
     }
-    compare_stabtime(dh, data_dict)
+    # compare_stabtime(dh, data_dict)

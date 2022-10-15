@@ -350,8 +350,8 @@ def qlist_to_qarray(qlist):
     mlist = []
     for x in qlist:
         if x is None or isnan(x):
-            x = np.nan
-        if hasattr(x, 'units'):
+            mlist.append(np.nan)
+        elif hasattr(x, 'units'):
             if ux is not None:
                 assert x.u == ux, 'Inconsistent units in quantity list.'
             ux = x.u
