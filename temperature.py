@@ -621,6 +621,7 @@ def compare_stabtime(dh, data_dict):
     print('Compare stabilization time')
     fields = [0.01] * ur['V/um']
     delta_field = 0.005 * ur['V/um']
+    outfile = open(os.path.join(RES_DIR, 'compare_stabtime.txt'), 'w')
 
     for chip in data_dict:
         dh.load_chip(chip)
@@ -648,6 +649,7 @@ def compare_stabtime(dh, data_dict):
                 coeffs, model = a.fit_exponential(x, y)
                 act_energy = (- coeffs[0] * 100 * ur.k_B).to('meV')
                 print(f"Activation energy ({fmt(stabtime_i)}): {fmt(act_energy)}")
+                print(f"Activation energy ({fmt(stabtime_i)}): {fmt(act_energy)}", file=outfile)
                 x_model = 100 / np.array([100, 350])
                 ax.plot(x_model, model(x_model), c=fit_cols[i], zorder=len(stabtime)+i,
                         label=fr"fit after ${fmt(stabtime_i, latex=True)}$")
@@ -658,6 +660,7 @@ def compare_stabtime(dh, data_dict):
             res_image = os.path.join(RES_DIR, f"{chip}_{pair}_stabtime_comparison.png")
             fig.savefig(res_image)
             plt.close()
+    outfile.close()
 
 
 class SliderSetter:
@@ -774,12 +777,12 @@ if __name__ == "__main__":
     }
     # data_dict_ = data_dict
     data_dict_ = {}
-    low_temperature(dh, data_dict_)
-    nsites(data_dict)
-    high_temperature(dh, data_dict)
+    # low_temperature(dh, data_dict_)
+    # nsites(data_dict)
+    # high_temperature(dh, data_dict)
 
     data_dict_ = {k: v for k, v in data_dict.items() if k in ['SQC1']}
-    interface(dh, data_dict_)
+    # interface(dh, data_dict_)
 
     data_dict = {
         'SPC2': {
@@ -791,4 +794,4 @@ if __name__ == "__main__":
             }
         }
     }
-    # compare_stabtime(dh, data_dict)
+    compare_stabtime(dh, data_dict)
