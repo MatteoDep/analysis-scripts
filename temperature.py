@@ -642,7 +642,7 @@ def generate_tables():
             if i != 0:
                 table += '\n'
             if i > 2 and not line.startswith(' '):
-                table += '\n' + r'\hline'
+                table += r'\hline' + '\n'
             if line.startswith(end_str):
                 break
             table += line
