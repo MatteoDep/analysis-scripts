@@ -53,7 +53,7 @@ def get_temperature_dependence(dh, names, fields, delta_field, noise_level=DEFAU
     return temperature, conductance
 
 
-def full(dh, data_dict):
+def low_temperature(dh, data_dict):
     """Main routine function.
     :param dh: DataHandler object.
     :param data_dict: dictionary like
@@ -67,11 +67,12 @@ def full(dh, data_dict):
             'chipB': ...
         }
     """
+    print("Low Temperature Analysis")
     fields = np.arange(0, 2, 0.05) * ur['V/um']
     delta_field = 0.005 * ur['V/um']
 
-    csv_path = os.path.join('results', EXPERIMENT, 'params.csv')
-    df_keys = ['chip', 'pair', 'length', 'd_length', 'act_energy', 'd_act_energy', 'alpha0', 'd_alpha0',
+    csv_path = os.path.join('results', EXPERIMENT, 'ltparams.csv')
+    df_keys = ['chip', 'pair', 'length', 'd_length', 'alpha0', 'd_alpha0',
                'alpha1', 'd_alpha1', 'alpha2', 'ns0', 'd_ns0', 'i0', 'd_i0', 'ns2', 'd_ns2', 'i02', 'd_i02']
     if os.path.exists(csv_path):
         df = pd.read_csv(csv_path)
@@ -112,31 +113,6 @@ def full(dh, data_dict):
                 noise_level = DEFAULT_NOISE_LEVEL
             temperature, conductance = get_temperature_dependence(dh, names, fields_, delta_field, noise_level=noise_level)
 
-            # High temperature dependence
-            indices = a.is_between(temperature, [101, 350]*ur.K)
-            act_energy, act_energy_, dact_energy = None, None, None
-            if np.sum(indices) > 2:
-                fig, ax = plt.subplots()
-                fig.suptitle("High Temperature Conductance")
-                x = 100 / temperature[indices]
-                y = conductance[0][indices]
-                x_, dx, ux = a.separate_measurement(x)
-                y_, dy, uy = a.separate_measurement(y)
-                ax.errorbar(x_, y_, xerr=dx, yerr=dy, fmt='o', zorder=0, label='data')
-                coeffs, act_model = a.fit_exponential(x, y)
-                act_energy = (- coeffs[0] * 100 * ur.k_B).to('meV')
-                act_energy_, dact_energy, _ = a.separate_measurement(act_energy)
-                print("Activation energy:", fmt(act_energy))
-                x_model = 100 / np.array([80, 350])
-                ax.plot(x_model, act_model(x_model), c='r', zorder=1, label='fit')
-                ax.legend()
-                ax.set_xlabel(r"$100/T$" + ulbl(ux))
-                ax.set_ylabel(r"$G$" + ulbl(uy))
-                ax.set_yscale('log')
-                res_image = os.path.join(RES_DIR, f"{chip}_{pair}_high_temperature.png")
-                fig.savefig(res_image)
-                plt.close()
-
             # plot temperature dependence
             x = 100 / temperature
             x_, dx, ux = a.separate_measurement(x)
@@ -149,13 +125,10 @@ def full(dh, data_dict):
                 y_, dy, uy = a.separate_measurement(y)
                 x_, y_, dx, dy = a.strip_nan(x_, y_, dx, dy)
                 ax.errorbar(x_, y_, xerr=dx, yerr=dy, fmt='--o', zorder=i, c=cols[i])
-                # if i == 0 and act_energy is not None:
-                #     ax.plot(x_model, act_model(x_model), c='r', zorder=len(fields_), label="fit")
-            ax.legend()
             ax.set_xlabel(r"$100/T$" + ulbl(ux))
             ax.set_ylabel(r"$G$" + ulbl(uy))
             ax.set_yscale('log')
-            cbar.ax.set_ylabel("$E_{bias}$" + ulbl(fields_.u))
+            cbar.ax.set_ylabel(r"$\mathcal{E}_{bias}$" + ulbl(fields_.u))
             res_image = os.path.join(RES_DIR, f"{chip}_{pair}_temperature_dep.png")
             fig.savefig(res_image)
             plt.close()
@@ -207,7 +180,7 @@ def full(dh, data_dict):
             ax2.set_yscale('log')
             ax2.xaxis.set_minor_formatter(ticker.ScalarFormatter())
             ax2.xaxis.set_major_formatter(ticker.ScalarFormatter())
-            ax2.set_xlabel(r"$E_b$" + ulbl(ux))
+            ax2.set_xlabel(r"$\mathcal{E}_{bias}$" + ulbl(ux))
             ax2.set_ylabel(r"$G$" + ulbl(uy))
             ax2.legend()
             res_image = os.path.join(RES_DIR, f"{chip}_{pair}_power_law.png")
@@ -321,8 +294,6 @@ def full(dh, data_dict):
                 'pair': [pair],
                 'length': [length_],
                 'd_length': [dlength],
-                'act_energy': [act_energy_],
-                'd_act_energy': [dact_energy],
                 'alpha0': [alpha0_],
                 'd_alpha0': [dalpha0],
                 'alpha1': [alpha1_],
@@ -347,8 +318,9 @@ def full(dh, data_dict):
 
 
 def nsites(data_dict):
+    print('Plot number of sites')
     RES_DIR = os.path.join('results', EXPERIMENT)
-    csv_path = os.path.join(RES_DIR, 'params.csv')
+    csv_path = os.path.join(RES_DIR, 'ltparams.csv')
     df = pd.read_csv(csv_path)
 
     ykeys = ['ns0', 'ns2']
@@ -380,13 +352,21 @@ def nsites(data_dict):
         fig.savefig(res_images[i])
         plt.close()
 
-    stats = {}
+    keys = ['length', 'alpha0', 'alpha1', 'alpha2', 'ns0', 'ns2']
+    units = [ur.um, ur[''], ur[''], ur[''], ur[''], ur[''], ur['']]
+    titles = ['Length', r'$\alpha_0$', r'$\alpha_1$', r'$\alpha_2$', r'$N_{sites,0}$', r'$N_{sites,2}$']
+    table = create_table(df, keys, units, titles)
+    table = table.replace('tabular}{ll', 'tabular}{ll|')
+    df_tex_path = os.path.join(RES_DIR, 'ltparams.tex')
+    with open(df_tex_path, 'w') as f:
+        print(table, file=f)
+
+
+def create_table(df, keys, units, titles):
+    averages_str = r"\multicolumn{2}{c|}{\textbf{average}}"
     df_indexed = df.set_index(['chip', 'length']).sort_index()
     df = df_indexed.reset_index()
     df_latex = df.loc[:, ['chip', 'pair']]
-    keys = ['length', 'act_energy', 'alpha0', 'alpha1', 'alpha2', 'ns0', 'ns2']
-    units = [ur.um, ur.meV, ur[''], ur[''], ur[''], ur[''], ur[''], ur['']]
-    titles = ['Length', r'$E_A$', r'$\alpha_0$', r'$\alpha_1$', r'$\alpha_2$', r'$N_{sites,0}$', r'$N_{sites,2}$']
     for key, title, unit in zip(keys, titles, units):
         x_ = np.array(df[key])
         if key == 'alpha2':
@@ -396,44 +376,43 @@ def nsites(data_dict):
             dx = np.array(df['d_' + key])
             x = a.qlist_to_qarray([(x_i * unit).plus_minus(dxi) for x_i, dxi in zip(x_, dx)])
             x_str = ['$' + fmt(xi.m, latex=True) + '$' for xi in x]
+        averages_str += ' & '
         if key not in ['length', 'ns0', 'ns2']:
-            stats[title] = [fmt(a.average(x), latex=True)]
+            averages_str += fmt(a.strip_err(a.average(x)), latex=True)
         df_latex[title+ulbl(unit)] = x_str
 
     # write table
-    df_tex_path = os.path.join(RES_DIR, 'params.tex')
     latex_str = df_latex.set_index(['chip', 'pair']).style.to_latex()
-    latex_list = latex_str.split('\n')
-    with open(df_tex_path, 'w') as f:
-        for i, line in enumerate(latex_list):
-            if i == 0:
-                line = line.replace('tabular}{ll', 'tabular}{ll|')
-            elif line.startswith('\\end'):
-                print(line, end='', file=f)
-                break
-            elif i > 2 and not line.startswith(' '):
-                print(r'\hline', file=f)
-            print(line, file=f)
-
-    # write stats table
-    stats_tex_path = os.path.join(RES_DIR, 'stats.tex')
-    latex_str = pd.DataFrame(stats).style.to_latex()
-    latex_list = latex_str.split('\n')
-    with open(stats_tex_path, 'w') as f:
-        for i, line in enumerate(latex_list):
-            if i > 0:
-                line = "&".join(line.split('&')[1:])
-            elif line.startswith('\\end'):
-                print(line, end='', file=f)
-                break
-            if i == 2:
-                print(r'\hline', file=f)
-            print(line, file=f)
+    end_str = r'\end{tabular}'
+    table = ""
+    for i, line in enumerate(latex_str.split('\n')):
+        if i > 2 and not line.startswith(' '):
+            table += '\n' + r'\hline'
+        if line.startswith(end_str):
+            break
+        if line != "":
+            table += '\n' + line
+    table += '\n' + averages_str
+    table += '\n' + end_str
+    return table
 
 
 def high_temperature(dh, data_dict):
-    fields = [0] * ur['V/um']
+    print("High Temperature Analysis")
+    fields = np.arange(0, 2, 0.05) * ur['V/um']
     delta_field = 0.005 * ur['V/um']
+    x_model = 100 / np.array([100, 350])
+
+    csv_path = os.path.join('results', EXPERIMENT, 'htparams.csv')
+    df_keys = ['chip', 'pair', 'length', 'd_length', 'act_energy', 'd_act_energy']
+    if os.path.exists(csv_path):
+        df = pd.read_csv(csv_path)
+        for k in df_keys:
+            if k not in df:
+                df[k] = [None for i in df.index]
+        df = df[df_keys]
+    else:
+        df = pd.DataFrame({k: [] for k in df_keys})
 
     x = []
     y = []
@@ -447,21 +426,74 @@ def high_temperature(dh, data_dict):
         for pair in data_dict[chip]:
             nums = data_dict[chip][pair]['nums']
             names = [f"{chip}_{i}" for i in nums if dh.props[f"{chip}_{i}"]['temperature'] > 100*ur.K]
+
+            dh.load(names[0])
+            length = dh.get_length()
+            length_, dlength, _ = a.separate_measurement(length)
+            print(f"Chip {chip}, Pair {pair} of length {fmt(length)}.")
+
+            max_field = dh.prop['bias'] / dh.get_length()
+            fact = max(a.separate_measurement((fields[4] + delta_field) // max_field)[0] + 1, 1)
+            fields_ = fields / fact
+            delta_field_ = delta_field / fact
+            fields_ = fields_[fields_ + delta_field_ < max_field]
+
+            df_index = np.nonzero(np.array((df['chip'] == chip) * (df['pair'] == pair)))[0]
+
             temperature, conductance = get_temperature_dependence(dh, names, fields, delta_field)
-            x.append(100 / temperature)
+            xi = 100 / temperature
+            act_energy_, dact_energy = None, None
+            x.append(xi)
             y.append(conductance[0])
             coeffs, model = a.fit_exponential(x[-1], y[-1])
-            act_energy = np.append(act_energy, (- coeffs[0] * 100 * ur.k_B).to('meV'))
-            models.append(model)
-            markers.append(markers_list[markers_index])
+            if coeffs is not None:
+                act_energyi = (- coeffs[0] * 100 * ur.k_B).to('meV')
+                act_energy_, dact_energy, _ = a.separate_measurement(act_energyi)
+                act_energy = np.append(act_energy, act_energyi)
+                models.append(model)
+                markers.append(markers_list[markers_index])
+
+            fig, ax = plt.subplots()
+            fig.suptitle("High Temperature Conductance")
+            cbar, cols = dp.get_cbar_and_cols(fig, fields_, vmin=0)
+            for i, field in enumerate(fields_):
+                x_, dx, ux = a.separate_measurement(xi)
+                y_, dy, uy = a.separate_measurement(conductance[i])
+                x_, y_, dx, dy = a.strip_nan(x_, y_, dx, dy)
+                ax.errorbar(x_, y_, xerr=dx, yerr=dy, fmt='--o', zorder=i, c=cols[i])
+                if i == 0 and act_energy_ is not None:
+                    print("Activation energy:", fmt(act_energyi))
+                    ax.plot(x_model, model(x_model), c='r', zorder=len(fields_), label="fit")
+            ax.set_xlabel(r"$100/T$" + ulbl(ux))
+            ax.set_ylabel(r"$G$" + ulbl(uy))
+            cbar.ax.set_ylabel(r"$\mathcal{E}_{bias}$" + ulbl(fields_.u))
+            ax.set_yscale('log')
+            res_image = os.path.join(RES_DIR, f"{chip}_{pair}_high_temperature.png")
+            fig.savefig(res_image)
+            plt.close()
+
+            df0 = pd.DataFrame({
+                'chip': [chip],
+                'pair': [pair],
+                'length': [length_],
+                'd_length': [dlength],
+                'act_energy': [act_energy_],
+                'd_act_energy': [dact_energy],
+            })
+            if df.loc[df_index].empty:
+                df = df0.merge(df, how='outer')
+            else:
+                df.iloc[df_index] = df0.iloc[0]
+            dh.clear()
+            print()
         markers_index += 1
+    df.to_csv(csv_path, index=False)
 
     fig, ax = plt.subplots()
     fig.suptitle("High Temperature Conductance")
     act_energy_ = a.separate_measurement(act_energy)[0]
     ticks = np.arange(np.amin(act_energy_), np.amax(act_energy_), 5)
     cbar, cols = dp.get_cbar_and_cols(fig, act_energy, ticks=ticks)
-    x_model = 100 / np.array([100, 350])
     for i, act_energy_i in enumerate(act_energy):
         x_, dx, ux = a.separate_measurement(x[i])
         y_, dy, uy = a.separate_measurement(y[i])
@@ -476,12 +508,117 @@ def high_temperature(dh, data_dict):
         for m, chip in zip(np.unique(markers), data_dict.keys())
     ])
     ax.set_yscale('log')
-    res_image = os.path.join(RES_DIR, "act_energy_all.png")
+    res_image = os.path.join(RES_DIR, "high_temperature_all.png")
     fig.savefig(res_image)
     plt.close()
 
+    keys = ['length', 'act_energy']
+    units = [ur.um, ur.meV]
+    titles = ['Length', r'$E_A$']
+    table = create_table(df, keys, units, titles)
+    table = table.replace('tabular}{ll', 'tabular}{ll|')
+    df_tex_path = os.path.join(RES_DIR, 'htparams.tex')
+    with open(df_tex_path, 'w') as f:
+        print(table, file=f)
+
+
+def interface(dh, data_dict, fit_indices=[0]):
+    print("Interface Analysis")
+    fields = np.arange(0, 2, 0.05) * ur['V/um']
+    delta_field = 0.005 * ur['V/um']
+    x_model = 100 / np.array([100, 350])
+    fit_indices = [0, 1]
+
+    csv_path = os.path.join('results', EXPERIMENT, 'htparams_alt.csv')
+    df_keys = ['chip', 'pair', 'length', 'd_length', 'act_energy0', 'd_act_energy0', 'act_energy1', 'd_act_energy1']
+    if os.path.exists(csv_path):
+        df = pd.read_csv(csv_path)
+        for k in df_keys:
+            if k not in df:
+                df[k] = [None for i in df.index]
+        df = df[df_keys]
+    else:
+        df = pd.DataFrame({k: [] for k in df_keys})
+
+    for chip in data_dict:
+        dh.load_chip(chip)
+        for pair in data_dict[chip]:
+            nums = data_dict[chip][pair]['nums']
+            names = [f"{chip}_{i}" for i in nums if dh.props[f"{chip}_{i}"]['temperature'] > 100*ur.K]
+
+            dh.load(names[0])
+            length = dh.get_length()
+            length_, dlength, _ = a.separate_measurement(length)
+            print(f"Chip {chip}, Pair {pair} of length {fmt(length)}.")
+
+            max_field = dh.prop['bias'] / dh.get_length()
+            fact = max(a.separate_measurement((fields[4] + delta_field) // max_field)[0] + 1, 1)
+            fields_ = fields / fact
+            delta_field_ = delta_field / fact
+            fields_ = fields_[fields_ + delta_field_ < max_field]
+
+            df_index = np.nonzero(np.array((df['chip'] == chip) * (df['pair'] == pair)))[0]
+
+            temperature, conductance = get_temperature_dependence(dh, names, fields, delta_field)
+            act_energy = []
+            act_energy_, dact_energy = [[None, None] for i in fit_indices]
+            fig, ax = plt.subplots()
+            fig.suptitle("High Temperature Conductance")
+            cbar, cols = dp.get_cbar_and_cols(fig, fields_, vmin=0)
+            for i, field in enumerate(fields_):
+                x = 100 / temperature
+                y = conductance[i]
+                x_, dx, ux = a.separate_measurement(x)
+                y_, dy, uy = a.separate_measurement(y)
+                x_, y_, dx, dy = a.strip_nan(x_, y_, dx, dy)
+                ax.errorbar(x_, y_, xerr=dx, yerr=dy, fmt='--o', zorder=i, c=cols[i])
+                if i in fit_indices and act_energy_ is not None:
+                    coeffs, model = a.fit_exponential(x, y)
+                    act_energy.append((- coeffs[0] * 100 * ur.k_B).to('meV'))
+                    print("Activation energy:", fmt(act_energy[i]))
+                    ax.plot(x_model, model(x_model), c=['r', 'k'][i], zorder=len(fields_)+i, label="$E_A="+fmt(act_energy[i], latex=True)+"$")
+            ax.set_xlabel(r"$100/T$" + ulbl(ux))
+            ax.set_ylabel(r"$G$" + ulbl(uy))
+            cbar.ax.set_ylabel(r"$\mathcal{E}_{bias}$" + ulbl(fields_.u))
+            ax.set_yscale('log')
+            ax.legend()
+            res_image = os.path.join(RES_DIR, f"{chip}_{pair}_high_temperature_alt.png")
+            fig.savefig(res_image)
+            plt.close()
+
+            dfdict = {
+                'chip': [chip],
+                'pair': [pair],
+                'length': [length_],
+                'd_length': [dlength],
+            }
+            for i in fit_indices:
+                act_energy_, dact_energy, _ = a.separate_measurement(act_energy[i])
+                dfdict.update({
+                    f'act_energy{i}': [act_energy_],
+                    f'd_act_energy{i}': [dact_energy],
+                 })
+            df0 = pd.DataFrame(dfdict)
+            if df.loc[df_index].empty:
+                df = df0.merge(df, how='outer')
+            else:
+                df.iloc[df_index] = df0.iloc[0]
+            dh.clear()
+            print()
+    df.to_csv(csv_path, index=False)
+
+    keys = ['length', 'act_energy0', 'act_energy1']
+    units = [ur.um, ur.meV, ur.meV]
+    titles = ['Length', r'$E_A$ ('+fmt(fields_[0], latex=True)+')', r'$E_A$ ('+fmt(fields_[1], latex=True)+')']
+    table = create_table(df, keys, units, titles)
+    table = table.replace('tabular}{ll', 'tabular}{ll|')
+    df_tex_path = os.path.join(RES_DIR, 'htparams_alt.tex')
+    with open(df_tex_path, 'w') as f:
+        print(table, file=f)
+
 
 def compare_stabtime(dh, data_dict):
+    print('Compare stabilization time')
     fields = [0.01] * ur['V/um']
     delta_field = 0.005 * ur['V/um']
 
@@ -635,12 +772,14 @@ if __name__ == "__main__":
             },
         },
     }
-    # data_dict_ = {'SPC2': {'P2-P4': data_dict['SPC2']['P2-P4']}}
-    # data_dict_ = {k: v for k, v in data_dict.items() if k in ['SQC1']}
-    data_dict_ = data_dict
-    # full(dh, data_dict_)
+    # data_dict_ = data_dict
+    data_dict_ = {}
+    low_temperature(dh, data_dict_)
     nsites(data_dict)
-    # high_temperature(dh, data_dict)
+    high_temperature(dh, data_dict)
+
+    data_dict_ = {k: v for k, v in data_dict.items() if k in ['SQC1']}
+    interface(dh, data_dict_)
 
     data_dict = {
         'SPC2': {
