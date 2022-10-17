@@ -3,7 +3,11 @@
 # depends on imagemagik (convert command)
 
 report_images_dir='../report/images'
-subdirs='data light length temperature gate'
+if [ "$1" ]; then
+	subdirs=$*
+else
+	subdirs='data light length temperature gate'
+fi
 
 for subdir in $subdirs; do
 	sourcedir="results/$subdir"
