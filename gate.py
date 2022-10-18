@@ -143,7 +143,7 @@ def main(data_dict):
                 ], loc='upper left')
                 ax.set_xlabel(r"$V_G$" + ulbl(ux))
                 ax.set_ylabel(r"$G$" + ulbl(uy))
-                cbar.ax.set_ylabel("$E_{{bias}}$" + ulbl(fields_.u))
+                cbar.ax.set_ylabel(r"$\mathcal{E}_{{bias}}$" + ulbl(fields_.u))
                 res_image = os.path.join(RES_DIR, f"{chip}_{pair}_{temp_key}_gate_dep.png")
                 fig.savefig(res_image, bbox_inches='tight')
                 plt.close()

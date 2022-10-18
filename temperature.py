@@ -323,6 +323,13 @@ def nsites(data_dict):
     csv_path = os.path.join(RES_DIR, 'ltparams.csv')
     df = pd.read_csv(csv_path)
 
+    resdict = {
+        'chip': [],
+        'gamma0': [],
+        'd_gamma0': [],
+        'gamma2': [],
+        'd_gamma2': [],
+    }
     ykeys = ['ns0', 'ns2']
     res_images = [
         os.path.join(RES_DIR, "number_of_sites.png"),
@@ -333,9 +340,12 @@ def nsites(data_dict):
         r'Number of Sites - Adjusted $\alpha$',
     ]
     for i, ykey in enumerate(ykeys):
+        gammakey = ykey.replace('ns', 'gamma')
         fig, ax = plt.subplots()
         fig.suptitle(titles[i])
         for chip in data_dict:
+            if i == 0:
+                resdict['chip'].append(chip)
             df0 = df.set_index('chip').loc[chip]
             x_ = np.array(df0['length'])
             dx = np.array(df0['d_length'])
@@ -343,14 +353,25 @@ def nsites(data_dict):
             dy = np.array(df0['d_'+ykey])
             ax.errorbar(x_, y_, xerr=dx, yerr=dy, fmt='o', label=chip)
             if len(x_.shape) > 0:
-                _, model = a.fit_linear((x_, dx, ur.um), (y_, dy, ur['']))
+                coeffs, model = a.fit_linear((x_, dx, ur.um), (y_, dy, ur['']))
+                gamma = 1 / coeffs[0]
                 x_model = np.array([0, np.amax(x_)*1.1])
                 ax.plot(x_model, model(x_model), c='r')
+            else:
+                x = (x_ * ur.um).plus_minus(dx)
+                y = (y_ * ur['']).plus_minus(dy)
+                gamma = x / y
+            gamma_, dgamma, _ = a.separate_measurement(gamma.to('nm'))
+            resdict[gammakey].append(gamma_)
+            resdict['d_'+gammakey].append(dgamma)
         ax.set_xlabel('Length' + ulbl(ur.um))
-        ax.set_ylabel(r'$N_{sites'+ykey.replace('ns', ',')+r'}$')
+        ax.set_ylabel(r'$N_{s'+ykey.replace('ns', ',')+r'}$')
         ax.legend()
         fig.savefig(res_images[i])
         plt.close()
+
+    csv_path = os.path.join(RES_DIR, 'gamma.csv')
+    pd.DataFrame(resdict).to_csv(csv_path, index=False)
 
 
 def high_temperature(dh, data_dict, min_field_points=4):
@@ -551,7 +572,6 @@ def interface(dh, data_dict, min_field_points=5, fit_indices=[0]):
                     f'd_act_energy{i}': [dact_energy],
                 })
             act_energy_diff_, dact_energy_diff, _ = a.separate_measurement(np.diff(act_energy)[0])
-            print(act_energy_diff_, dact_energy_diff)
             dfdict.update({
                 'act_energy_diff': [act_energy_diff_],
                 'd_act_energy_diff': [dact_energy_diff],
@@ -615,11 +635,14 @@ def compare_stabtime(dh, data_dict):
 def generate_tables():
     print("Generating tables")
 
-    def create_table(df, keys, units, titles):
-        averages_str = r"\multicolumn{2}{c|}{\textbf{average}}"
-        df_indexed = df.set_index(['chip', 'length']).sort_index()
+    def create_table(df, keys, units, titles, index=['chip', 'pair'], sort_index=['chip', 'length']):
+        if len(index) > 1:
+            averages_str = r"\multicolumn{" + str(len(index)) + r"}{c|}{\textbf{average}}"
+        else:
+            averages_str = r"\textbf{average}"
+        df_indexed = df.set_index(sort_index).sort_index()
         df = df_indexed.reset_index()
-        df_latex = df.loc[:, ['chip', 'pair']]
+        df_latex = df.loc[:, index]
         for key, title, unit in zip(keys, titles, units):
             x_ = np.array(df[key])
             if key == 'alpha2':
@@ -631,11 +654,11 @@ def generate_tables():
                 x_str = ['$' + fmt(xi.m, latex=True) + '$' for xi in x]
             averages_str += ' & '
             if key not in ['length', 'ns0', 'ns2']:
-                averages_str += fmt(a.average(x).m, latex=True)
+                averages_str += '$' + fmt(a.average(x).m, latex=True) + '$'
             df_latex[title+ulbl(unit)] = x_str
 
         # write table
-        latex_str = df_latex.set_index(['chip', 'pair']).style.to_latex()
+        latex_str = df_latex.set_index(index).style.to_latex()
         end_str = r'\end{tabular}'
         table = ""
         for i, line in enumerate(latex_str.split('\n')):
@@ -668,7 +691,7 @@ def generate_tables():
         df = pd.read_csv(csv_path)
         keys = ['length', 'alpha0', 'alpha1', 'alpha2', 'ns0', 'ns2']
         units = [ur.um, ur[''], ur[''], ur[''], ur[''], ur[''], ur['']]
-        titles = ['Length', r'$\alpha_0$', r'$\alpha_1$', r'$\alpha_2$', r'$N_{sites,0}$', r'$N_{sites,2}$']
+        titles = ['Length', r'$\alpha_0$', r'$\alpha_1$', r'$\alpha_2$', r'$N_{s,0}$', r'$N_{s,2}$']
         table = create_table(df, keys, units, titles)
         df_tex_path = os.path.join(RES_DIR, 'ltparams.tex')
         with open(df_tex_path, 'w') as f:
@@ -682,6 +705,17 @@ def generate_tables():
         titles = ['Length', r'$E_A('+fmt(0*ur['V/um'], latex=True)+')$', r'$E_A('+fmt(0.05*ur['V/um'], latex=True)+'$)', r'$\Delta E_A$']
         table = create_table(df, keys, units, titles)
         df_tex_path = os.path.join(RES_DIR, 'htparams_alt.tex')
+        with open(df_tex_path, 'w') as f:
+            print(table, file=f)
+
+    csv_path = os.path.join(RES_DIR, 'gamma.csv')
+    if os.path.exists(csv_path):
+        df = pd.read_csv(csv_path)
+        keys = ['gamma0', 'gamma2']
+        units = [ur.nm, ur.nm]
+        titles = [r'$\gamma_0$', r'$\gamma_2$']
+        table = create_table(df, keys, units, titles, index=['chip'], sort_index=['chip'])
+        df_tex_path = os.path.join(RES_DIR, 'gamma.tex')
         with open(df_tex_path, 'w') as f:
             print(table, file=f)
 
@@ -798,13 +832,13 @@ if __name__ == "__main__":
             },
         },
     }
-    # data_dict_ = data_dict
+    data_dict_ = data_dict
     # data_dict_ = {k: v for k, v in data_dict.items() if k in ['SQC1']}
     # data_dict_ = {k: v for k, v in data_dict.items() if k in ['SLBC2']}
     # data_dict_ = {}
     # high_temperature(dh, data_dict_)
     # low_temperature(dh, data_dict_)
-    # nsites(data_dict)
+    nsites(data_dict)
 
     data_dict_ = {k: v for k, v in data_dict.items() if k in ['SPC2', 'SQC1']}
     # interface(dh, data_dict_)

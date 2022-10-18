@@ -21,11 +21,13 @@ grid.linewidth: 0.6
 grid.alpha: 0.8
 
 legend.frameon: False
+legend.fontsize: small
+legend.handlelength: 1.0
 
 figure.figsize: 6.5, 5
 figure.dpi: 100
 figure.constrained_layout.use: True
 
-errorbar.capsize: 2
+errorbar.capsize: 1
 
 savefig.dpi: 200

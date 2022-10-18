@@ -74,8 +74,8 @@ def main(dh, data_dict, pair_on_axis=False):
             pair_label[inj] = [f"{p}\n{fmt(x[i], latex=True)}" for i, p in enumerate(pair[inj])]
             y = resistance[inj]
             y_, dy, uy = a.separate_measurement(y)
-            ax.errorbar(x_, y_, xerr=dx, yerr=dy, fmt='o', label='data')
-            if inj == '4p':
+            ax.errorbar(x_, y_, xerr=dx, yerr=dy, fmt='o')
+            if inj == '4p' and data_dict[chip]['plot_model']:
                 x_model = np.array([0, np.amax(x_)*1.1])
                 y_model = model(x_model)
                 ax.plot(x_model, y_model, label=fr'fit ($\sigma = {fmt(conductivity, latex=True)})$')
@@ -158,7 +158,8 @@ if __name__ == "__main__":
             'nums': np.concatenate([
                 np.arange(1, 23),
                 np.arange(24, 31),
-            ])
+            ]),
+            'plot_model': True,
         },
         'SPC3': {
             'nums': np.concatenate([
@@ -166,14 +167,16 @@ if __name__ == "__main__":
                 np.arange(3, 10),
                 np.arange(11, 13),
                 np.arange(14, 18),
-            ])
+            ]),
+            'plot_model': True,
         },
         'SQC1': {
             'nums': np.concatenate([
                 [7, 8, 10, 11],
                 np.arange(13, 23),
                 np.arange(25, 37),
-            ])
+            ]),
+            'plot_model': False,
         }
     }
 
