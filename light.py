@@ -96,13 +96,13 @@ def temp_dependence(dh, names):
             x_, dx, ux = a.separate_measurement(100 / temperature[key][r][ls])
             y_, dy, uy = a.separate_measurement(conductance[key][r][ls])
             ax.errorbar(x_, y_, xerr=dx, yerr=dy, marker=markers[i], label=f"{key}, {ls}")
-    ax.set_title("Dark and Light Conductance")
-    ax.set_xlabel(r"$\frac{{100}}{{T}}$" + ulbl(ux))
+    fig.suptitle("Dark and Light Conductance")
+    ax.set_xlabel(r"$100/T$" + ulbl(ux))
     ax.set_ylabel(r"$G$" + ulbl(uy))
     ax.set_yscale('log')
     plt.legend(loc=(0.38, 0.55))
     res_image = os.path.join(res_dir, "all-temperature_dep.png")
-    fig.savefig(res_image, dpi=100)
+    fig.savefig(res_image)
     plt.close()
 
     fig, ax = plt.subplots()
@@ -112,13 +112,13 @@ def temp_dependence(dh, names):
         x_, dx, ux = a.separate_measurement(100 / temperature[key][r][ls])
         y_, dy, uy = a.separate_measurement(conductance[key][r][ls])
         ax.errorbar(x_, y_, xerr=dx, yerr=dy, marker=markers[i], label=key)
-    ax.set_title("Dark Conductance")
-    ax.set_xlabel(r"$\frac{{100}}{{T}}$" + ulbl(ux))
+    fig.suptitle("Dark Conductance")
+    ax.set_xlabel(r"$100/T$" + ulbl(ux))
     ax.set_ylabel(r"$G$" + ulbl(uy))
     ax.set_yscale('log')
     plt.legend(loc=(0.38, 0.55))
     res_image = os.path.join(res_dir, "all-temperature_dep_dark.png")
-    fig.savefig(res_image, dpi=100)
+    fig.savefig(res_image)
     plt.close()
 
     for key in names:
@@ -128,13 +128,13 @@ def temp_dependence(dh, names):
                 x_, dx, ux = a.separate_measurement(100 / temperature[key][r][ls])
                 y_, dy, uy = a.separate_measurement(conductance[key][r][ls])
                 ax.errorbar(x_, y_, xerr=dx, yerr=dy, marker='o', label=f"{ls}, {bias_labels[r]}")
-        ax.set_title(f"Temperature Dependence ({key.replace('_', ' ')})")
-        ax.set_xlabel(r"$\frac{{100}}{{T}}$" + ulbl(ux))
+        fig.suptitle(f"Temperature Dependence ({key.replace('_', ' ')})")
+        ax.set_xlabel(r"$100/T$" + ulbl(ux))
         ax.set_ylabel(r"$G$" + ulbl(uy))
         ax.set_yscale('log')
         plt.legend()
         res_image = os.path.join(res_dir, f"{key}-temperature_dep.png")
-        fig.savefig(res_image, dpi=100)
+        fig.savefig(res_image)
         plt.close()
 
         fig, ax = plt.subplots()
@@ -142,19 +142,19 @@ def temp_dependence(dh, names):
             x_, dx, ux = a.separate_measurement(temperature[key][r]['dark'])
             y_, dy, uy = a.separate_measurement(np.divide(*[conductance[key][r][s] for s in names[key][r]]))
             ax.errorbar(x_, y_, xerr=dx, yerr=dy, marker='o', label=bias_labels[r])
-        ax.set_title(f"Relative Temperature Dependence ({key.replace('_', ' ')})")
+        fig.suptitle(f"Relative Temperature Dependence ({key.replace('_', ' ')})")
         ax.set_xlabel(r"T" + ulbl(ux))
         ax.set_ylabel(r"$G_{light}/G_{dark}$")
         plt.legend()
         res_image = os.path.join(res_dir, f"{key}-temperature_dep_rel.png")
-        fig.savefig(res_image, dpi=100)
+        fig.savefig(res_image)
         plt.close()
 
 
 def time_constant(dh, names, switches):
     """Compute time constants of dark-light switches."""
 
-    directions = ['fall', 'rise']
+    directions = ['covered', 'uncovered']
     tau = {}
     temperature = {}
     for key in names:
@@ -176,13 +176,13 @@ def time_constant(dh, names, switches):
             x, dx, ux = a.separate_measurement(temperature[key])
             y, dy, uy = a.separate_measurement(tau[key][d])
             ax.errorbar(x, y, xerr=dx, yerr=dy, marker='o', label=d)
-        ax.set_title(f"Time Constant ({key.replace('_', ' ')})")
+        fig.suptitle(f"Time Constant ({key.replace('_', ' ')})")
         ax.set_xlabel(r"$T$" + ulbl(ux))
         ax.set_ylabel(r"$\tau$" + ulbl(uy))
         ax.set_yscale('log')
         plt.legend()
         res_image = os.path.join(res_dir, f"{key}-tau.png")
-        fig.savefig(res_image, dpi=100)
+        fig.savefig(res_image)
         plt.close()
 
 
@@ -199,12 +199,12 @@ def color_dependence(dh, names, time_window):
             dh.load(name)
             mask = dh.get_mask(time_win=time_window[key], only_return=False)
             dh.plot(ax, mode='i/t', color=colors[i], label=labels[i], mask=mask)
-        ax.set_title("Color Dependence ({}, {}, {})".format(
+        fig.suptitle("Color Dependence ({}, {}, {})".format(
             key.replace('_', ' '), dh.prop['bias'], dh.prop['temperature']
         ))
         plt.legend()
         res_image = os.path.join(res_dir, f"{key}-color_dep.png")
-        fig.savefig(res_image, dpi=100)
+        fig.savefig(res_image)
         plt.close()
 
 
@@ -238,23 +238,23 @@ def bias_dependence(dh, names, switches):
             x, dx, ux = a.separate_measurement(bias[key])
             y, dy, uy = a.separate_measurement(conductance[key][s])
             ax.errorbar(x, y, xerr=dx, yerr=dy, marker='o', label=s)
-        ax.set_title(f"Bias Dependence ({key.replace('_', ' ')}, {fmt(temperature)})")
+        fig.suptitle(f"Bias Dependence ({key.replace('_', ' ')}, {fmt(temperature)})")
         ax.set_xlabel("$V_b$" + ulbl(ux))
         ax.set_ylabel("$G$" + ulbl(uy))
         plt.legend()
         res_image = os.path.join(res_dir, f"{key}-{fmt(temperature, sep='')}-bias_dep.png")
-        fig.savefig(res_image, dpi=100)
+        fig.savefig(res_image)
         plt.close()
 
         fig, ax = plt.subplots()
         x, dx, ux = a.separate_measurement(bias[key])
         y, dy, uy = a.separate_measurement(np.divide(*[conductance[key][s] for s in statuses[::-1]]))
         ax.errorbar(x, y, xerr=dx, yerr=dy, marker='o')
-        ax.set_title(f"Relative Bias Dependence ({key.replace('_', ' ')}, {fmt(temperature)})")
+        fig.suptitle(f"Relative Bias Dependence ({key.replace('_', ' ')}, {fmt(temperature)})")
         ax.set_xlabel("$V_b$" + ulbl(ux))
         ax.set_ylabel(r"$G_{light}/G_{dark}$")
         res_image = os.path.join(res_dir, f"{key}-{fmt(temperature, sep='')}-bias_dep_rel.png")
-        fig.savefig(res_image, dpi=100)
+        fig.savefig(res_image)
         plt.close()
 
 
@@ -278,7 +278,7 @@ def plot_switches(dh, names, switches):
                     c = 'green'
                 ax.axvline(x=switch.m, c=c, label=d)
             ax = dh.plot(ax, mode='i/t')
-            ax.set_title(f"Switch ({key.replace('_', ' ')}, {dh.prop['bias']}, {dh.prop['temperature']})")
+            fig.suptitle(f"Switch ({key.replace('_', ' ')}, {dh.prop['bias']}, {dh.prop['temperature']})")
             plt.legend()
             res_image = os.path.join(
                 res_dir,
@@ -289,7 +289,7 @@ def plot_switches(dh, names, switches):
                     key
                 )
             )
-            fig.savefig(res_image, dpi=100)
+            fig.savefig(res_image)
             plt.close()
 
 
@@ -302,8 +302,9 @@ def plot_ivs(dh, names):
             for name, label in zip(names_, labels):
                 dh.load(name)
                 # mask = dh.get_mask(bias_win=[-24, 24]*ur.V)
-                ax = dh.plot(ax, notraw=True)
-            ax.set_title(f"IV ({key.replace('_', ' ')}, {dh.prop['temperature']})")
+                ax = dh.plot(ax, notraw=True, label=label)
+            ax.legend()
+            fig.suptitle(f"IV ({key.replace('_', ' ')}, {dh.prop['temperature']})")
             res_image = os.path.join(
                 res_dir,
                 "{1}-iv_{0.m}{0.u}.png".format(
@@ -311,7 +312,7 @@ def plot_ivs(dh, names):
                     key
                 )
             )
-            fig.savefig(res_image, dpi=100)
+            fig.savefig(res_image)
             plt.close()
 
 
@@ -406,13 +407,13 @@ if __name__ == "__main__":
     dh.load_chip(chip)
 
     do = []
-    do.append('temp_dependence')
-    do.append('time_constant')
-    do.append('color_dependence')
-    do.append('bias_dependence')
-    do.append('plot_switches')
+    # do.append('temp_dependence')
+    # do.append('time_constant')
+    # do.append('color_dependence')
+    # do.append('bias_dependence')
+    # do.append('plot_switches')
     do.append('plot_ivs')
-    do.append('heat_balance')
+    # do.append('heat_balance')
 
     if 'temp_dependence' in do:
         print('temp_dependence')

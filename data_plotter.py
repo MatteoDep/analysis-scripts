@@ -127,6 +127,23 @@ def plot_iv(dh, data_dict, highbias=False):
             plt.close()
 
 
+# def plot_iv_marcus(dh, data_dict):
+#     for chip in data_dict:
+#         dh.load_chip(chip)
+#         nums = data_dict[chip]['nums']
+#         names = np.array([f"{chip}_{i}" for i in nums])
+#         for name in names:
+#             dh.load(name)
+#             fig, ax = plt.subplots()
+#             fig.suptitle(f"Example I-V at {dh.prop['temperature']}")
+#             dh.plot(ax)
+#             res_image = os.path.join(
+#                 RES_DIR, f"{dh.chip}_{dh.prop['pair']}_iv_{fmt(dh.prop['temperature'], sep='')}_marcus.png"
+#             )
+#             fig.savefig(res_image)
+#             plt.close()
+
+
 def plot_ivs_gate(dh, data_dict, highbias=False):
     for chip in data_dict:
         dh.load_chip(chip)
